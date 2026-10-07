@@ -1,0 +1,40 @@
+/* ==========================================================
+   RentSmart HCM - chatbot.css (nút AI nổi + cửa sổ chat)
+   ========================================================== */
+.chat-fab { position: fixed; right: 16px; bottom: 16px; z-index: 1040; width: 58px; height: 58px; border: 0; border-radius: 50%; background: var(--primary); color: #fff; font-size: 1.5rem; box-shadow: var(--shadow-hover); cursor: pointer; animation: chatPulse 2s ease-out 3; }
+.chat-fab:hover { background: var(--primary-hover); }
+.chat-fab::after { content: attr(data-tip); position: absolute; right: 68px; top: 50%; transform: translateY(-50%); background: var(--dark); color: #fff; font-size: .8rem; padding: .3rem .7rem; border-radius: var(--radius-sm); white-space: nowrap; opacity: 0; pointer-events: none; transition: opacity .2s; font-family: inherit; }
+.chat-fab:hover::after, .chat-fab:focus-visible::after { opacity: 1; }
+@keyframes chatPulse { 0% { box-shadow: 0 0 0 0 rgba(194, 65, 12, .5); } 100% { box-shadow: 0 0 0 18px rgba(194, 65, 12, 0); } }
+
+.chat-box { position: fixed; z-index: 1050; inset: 0; background: var(--card); display: none; flex-direction: column; }
+.chat-box.open { display: flex; }
+.chat-head { background: var(--primary); color: #fff; padding: .6rem 1rem; display: flex; align-items: center; gap: .6rem; font-weight: 600; }
+.chat-head button { background: transparent; border: 0; color: #fff; font-size: 1.1rem; width: 44px; height: 44px; }
+.chat-head .spacer { margin-left: auto; }
+.chat-msgs { flex: 1; overflow-y: auto; padding: 1rem; background: var(--bg); display: flex; flex-direction: column; gap: .6rem; }
+.msg { max-width: 88%; padding: .6rem .9rem; border-radius: 14px; font-size: .92rem; white-space: pre-line; word-wrap: break-word; }
+.msg.ai { background: var(--card); border: 1px solid var(--border); align-self: flex-start; border-bottom-left-radius: 4px; }
+.msg.user { background: var(--primary); color: #fff; align-self: flex-end; border-bottom-right-radius: 4px; }
+.typing { display: inline-flex; gap: 4px; padding: .2rem 0; }
+.typing i { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); animation: typingDot 1s infinite; }
+.typing i:nth-child(2) { animation-delay: .15s; }
+.typing i:nth-child(3) { animation-delay: .3s; }
+@keyframes typingDot { 0%, 60%, 100% { opacity: .3; transform: none; } 30% { opacity: 1; transform: translateY(-3px); } }
+.chat-rooms { align-self: flex-start; display: flex; flex-direction: column; gap: .5rem; width: 92%; }
+.mini-room { display: flex; gap: .6rem; background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: .5rem; color: var(--text); }
+.mini-room:hover { border-color: var(--primary); color: var(--text); }
+.mini-room img { width: 72px; height: 54px; object-fit: cover; border-radius: 6px; flex-shrink: 0; }
+.mini-room b { display: block; font-size: .85rem; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.mini-room span { color: var(--primary); font-weight: 700; font-size: .85rem; }
+.mini-room small { display: block; color: var(--muted); }
+.chat-quick { padding: .5rem 1rem; display: flex; gap: .4rem; overflow-x: auto; border-top: 1px solid var(--border); }
+.chat-quick .chip { white-space: nowrap; font-size: .8rem; min-height: 36px; }
+.chat-form { display: flex; gap: .5rem; padding: .75rem 1rem; border-top: 1px solid var(--border); }
+.chat-support { background: none; border: 0; border-top: 1px solid var(--border); padding: .6rem; color: var(--primary); font-size: .85rem; font-weight: 600; font-family: inherit; }
+.chat-support:hover { background: var(--primary-soft); }
+
+@media (min-width: 992px) {
+  .chat-box { inset: auto 24px 24px auto; width: 360px; height: 520px; border-radius: var(--radius); border: 1px solid var(--border); box-shadow: var(--shadow-hover); overflow: hidden; }
+  .chat-fab { right: 24px; bottom: 24px; }
+}
