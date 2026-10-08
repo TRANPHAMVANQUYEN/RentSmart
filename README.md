@@ -1,9 +1,9 @@
 # RentSmart HCM – Frontend
 
-Website hỗ trợ **tìm và đăng tin cho thuê phòng trọ tại TP. Hồ Chí Minh**. Đây là bản frontend thuần (HTML5, CSS3, JavaScript), chưa có backend: dữ liệu mẫu được sinh sẵn và lưu trong `localStorage` của trình duyệt.
+Website hỗ trợ **tìm và đăng tin cho thuê phòng trọ tại TP. Hồ Chí Minh**. Frontend hiện tại vẫn là bản prototype HTML/CSS/JavaScript, dùng dữ liệu mẫu trong `localStorage`. Mã frontend đã được gom vào `frontend/` để tách biệt với backend Laravel dự kiến đặt tại `backend/`; backend chưa được khởi tạo.
 
 - Giao diện hoàn toàn bằng tiếng Việt, responsive từ 360px trở lên (mobile-first).
-- Màu chủ đạo: **cam đất `#C2410C`** (hover `#9A3412`, nền nhạt `#FFF1E8`) trên nền kem ấm `#FCFAF7`. Mọi màu khai báo bằng CSS variables ở đầu `assets/css/main.css` nên dễ đổi.
+- Màu chủ đạo: **cam đất `#C2410C`** (hover `#9A3412`, nền nhạt `#FFF1E8`) trên nền kem ấm `#FCFAF7`. Mọi màu khai báo bằng CSS variables ở đầu `frontend/assets/css/main.css` nên dễ đổi.
 - Chỉ phục vụ khu vực TP.HCM (22 quận/huyện/thành phố).
 
 ## 1. Công nghệ
@@ -17,20 +17,21 @@ Website hỗ trợ **tìm và đăng tin cho thuê phòng trọ tại TP. Hồ C
 | Google Fonts – Be Vietnam Pro | Font chữ hỗ trợ tiếng Việt |
 | picsum.photos | Ảnh phòng minh họa |
 | `localStorage` / `sessionStorage` | Giả lập cơ sở dữ liệu và phiên đăng nhập |
+| PHP, Laravel, MySQL | Stack backend mục tiêu; chưa được cài đặt trong repository |
 
 ## 2. Chạy thử
 
 Cần Internet để tải CDN và ảnh minh họa.
 
 ```bash
-# trong thư mục dự án
-python -m http.server 8000
+# tại thư mục gốc, chỉ chạy frontend prototype
+python -m http.server --directory frontend 8000
 # mở http://localhost:8000
 ```
 
-Cũng có thể mở trực tiếp `index.html`, hoặc dùng extension Live Server của VS Code.
+Cũng có thể mở trực tiếp `frontend/index.html`, hoặc dùng extension Live Server của VS Code. Các lệnh này chỉ phục vụ giao diện prototype; chúng không chạy backend.
 
-### Tài khoản có sẵn
+### Tài khoản prototype có sẵn
 
 | Vai trò | Tên đăng nhập | Mật khẩu | Trang đăng nhập |
 |---|---|---|---|
@@ -44,45 +45,28 @@ Dữ liệu mẫu gồm 20 tài khoản (admin, 7 chủ nhà, 12 người thuê,
 
 ```
 WEB_CK/
-├── index.html               Trang chủ
-├── phong-tro.html           Danh sách tin + bộ lọc (dùng chung mọi danh mục)
-├── chi-tiet.html            Chi tiết phòng (?id=)
-├── dang-nhap.html           Đăng nhập
-├── dang-ky.html             Đăng ký (chọn vai trò người thuê / chủ nhà)
-├── quen-mat-khau.html       Quên mật khẩu
-├── tin-da-luu.html          Tin đã lưu + lịch sử đã xem
-├── ho-so.html               Hồ sơ cá nhân, đổi ảnh đại diện, đổi mật khẩu
-├── chu-nha/
-│   ├── tong-quan.html       Dashboard chủ nhà
-│   ├── dang-tin.html        Đăng tin mới / sửa tin (?id=)
-│   └── quan-ly-tin.html     Tin của tôi
-├── admin/
-│   ├── dang-nhap.html       Đăng nhập riêng cho admin
-│   ├── tong-quan.html       Dashboard thống kê
-│   ├── tai-khoan.html       Quản lý tài khoản
-│   ├── tin-dang.html        Quản lý & kiểm duyệt tin
-│   ├── bao-cao-vi-pham.html Báo cáo vi phạm
-│   ├── luu-luong.html       Lưu lượng & chỉ số mạng (mô phỏng)
-│   └── nhat-ky.html         Nhật ký hoạt động
-└── assets/
-    ├── css/
-    │   ├── main.css         Design tokens (biến màu) + component dùng chung
-    │   ├── chatbot.css     Giao diện chat AI nổi
-    │   └── admin.css        Giao diện khu vực admin
-    ├── js/
-    │   ├── data.js          Hằng số, dữ liệu mẫu và lớp DB (localStorage)
-    │   ├── utils.js         Hàm tiện ích, thẻ phòng, header/footer dùng chung
-    │   ├── auth.js          Đăng nhập, đăng ký, phân quyền, tin đã lưu/đã xem
-    │   ├── listing.js       Lọc, sắp xếp, phân trang của phong-tro.html
-    │   ├── room-form.js     Form đăng/sửa tin (chủ nhà và admin dùng chung)
-    │   ├── chatbot.js       Trợ lý AI nổi
-    │   ├── admin.js         Khung admin (sidebar, topbar, bảo vệ quyền, helper)
-    │   ├── pages/           JS riêng từng trang người dùng và chủ nhà
-    │   └── admin/           JS riêng từng trang admin
-    └── img/                 Dành cho ảnh tĩnh
+├── frontend/                 Frontend prototype hiện tại
+│   ├── index.html            Trang chủ
+│   ├── phong-tro.html        Danh sách tin + bộ lọc
+│   ├── chi-tiet.html         Chi tiết phòng
+│   ├── dang-nhap.html        Đăng nhập prototype
+│   ├── dang-ky.html           Đăng ký prototype
+│   ├── quen-mat-khau.html    Quên mật khẩu
+│   ├── tin-da-luu.html       Tin đã lưu + lịch sử đã xem
+│   ├── ho-so.html            Hồ sơ cá nhân
+│   ├── chu-nha/              Các trang chủ nhà
+│   ├── admin/                Các trang quản trị
+│   └── assets/
+│       ├── css/              CSS dùng chung và theo khu vực
+│       ├── js/               Logic frontend prototype
+│       └── img/              Ảnh tĩnh
+├── backend/                  Vị trí dự kiến cho ứng dụng Laravel
+├── README.md
+├── prompt-frontend-rentsmart-hcm.md
+└── rentsmart_mysql_erd.html  Sơ đồ database hiện có
 ```
 
-Mỗi trang đặt `data-base` trên thẻ `<body>` (`""` ở thư mục gốc, `"../"` ở thư mục con) để các đường dẫn trong header, footer và liên kết luôn đúng. Thứ tự nạp script: Bootstrap → `data.js` → `utils.js` → `auth.js` → (`room-form.js`) → `chatbot.js` → script của trang.
+Backend Laravel chưa được tạo; cấu trúc `backend/` ở trên là vị trí dự kiến, không phải mã backend đang chạy. Mỗi trang frontend đặt `data-base` trên thẻ `<body>` (`""` ở thư mục frontend, `"../"` ở thư mục con) để các đường dẫn trong header, footer và liên kết luôn đúng. Thứ tự nạp script: Bootstrap → `data.js` → `utils.js` → `auth.js` → (`room-form.js`) → `chatbot.js` → script của trang.
 
 ## 4. Tính năng
 
@@ -107,11 +91,11 @@ Mỗi trang đặt `data-base` trên thẻ `<body>` (`""` ở thư mục gốc, 
 - **Nhật ký:** mọi thao tác của admin được ghi lại, có lọc và xuất CSV.
 
 ### Trợ lý AI nổi
-Có ở mọi trang người dùng (không có ở admin). Hiện là **rule-based**: nhận diện từ khóa tiếng Việt, tách giá và quận để gợi ý tối đa 3 phòng. Lịch sử chat giữ trong `sessionStorage`. Để dùng mô hình thật, thay hàm `askAI(message)` trong `assets/js/chatbot.js`; hàm trả về `{ text, rooms }`.
+Có ở mọi trang người dùng (không có ở admin). Hiện là **rule-based**: nhận diện từ khóa tiếng Việt, tách giá và quận để gợi ý tối đa 3 phòng. Lịch sử chat giữ trong `sessionStorage`. Để dùng mô hình thật, thay hàm `askAI(message)` trong `frontend/assets/js/chatbot.js`; hàm trả về `{ text, rooms }`.
 
 ## 5. Cách dữ liệu hoạt động
 
-- **Dữ liệu mẫu gốc** nằm trong `assets/js/data.js`. Lần đầu mở web, nó được chép vào `localStorage` với key `rs_db_v1`. Từ đó mọi thao tác chỉ ghi vào `localStorage`, file `data.js` không bị sửa.
+- **Dữ liệu mẫu gốc** nằm trong `frontend/assets/js/data.js`. Lần đầu mở web, nó được chép vào `localStorage` với key `rs_db_v1`. Từ đó mọi thao tác chỉ ghi vào `localStorage`, file `data.js` không bị sửa.
 - Các bảng: `users`, `rooms`, `room_images`, `amenities`, `room_amenities`, `reports`, `activity_logs`. Truy cập qua đối tượng `DB` (`DB.t('rooms')`, `DB.room(id)`, `DB.save()`...).
 - **Phiên đăng nhập:** key `rs_session` (ở `localStorage` nếu chọn "Ghi nhớ", ngược lại ở `sessionStorage`). **Tin đã lưu/đã xem:** `rs_saved_<id>` và `rs_viewed_<id>`.
 - Chỉ tin trạng thái **Đang hiển thị** mới xuất hiện công khai. Tin ở trạng thái khác chỉ chủ tin và admin xem được.
@@ -121,7 +105,7 @@ Có ở mọi trang người dùng (không có ở admin). Hiện là **rule-bas
 
 ## 6. Khung bản đồ ở trang chi tiết
 
-Trong `chi-tiet.html` (do `assets/js/pages/detail.js` dựng) có khối `#roomMap`, là khung tỉ lệ 16:9 ở desktop và 4:3 ở mobile, đang hiển thị chữ giữ chỗ. Địa chỉ đầy đủ được đặt sẵn ở thuộc tính `data-address`. Khi tích hợp bản đồ (Google Maps, Leaflet/OpenStreetMap...), chỉ cần khởi tạo bản đồ vào `#roomMap`, thay nội dung giữ chỗ, và dùng `data-address` để định vị hoặc thêm trường tọa độ vào dữ liệu phòng.
+Trong `frontend/chi-tiet.html` (do `frontend/assets/js/pages/detail.js` dựng) có khối `#roomMap`, là khung tỉ lệ 16:9 ở desktop và 4:3 ở mobile, đang hiển thị chữ giữ chỗ. Địa chỉ đầy đủ được đặt sẵn ở thuộc tính `data-address`. Khi tích hợp bản đồ (Google Maps, Leaflet/OpenStreetMap...), chỉ cần khởi tạo bản đồ vào `#roomMap`, thay nội dung giữ chỗ, và dùng `data-address` để định vị hoặc thêm trường tọa độ vào dữ liệu phòng.
 
 ## 7. Quy ước giao diện
 
@@ -137,9 +121,15 @@ Trong `chi-tiet.html` (do `assets/js/pages/detail.js` dựng) có khối `#roomM
 - Nội dung do người dùng nhập luôn được escape trước khi render.
 - Nhắn tin cho chủ nhà, quên mật khẩu và số liệu lưu lượng/mạng của admin đều là mô phỏng, chưa gửi đi đâu.
 
-## 9. Nâng cấp lên hệ thống thật
+## 9. Chuẩn bị backend Laravel
 
-1. Dựng backend và database theo các bảng ở mục 5.
-2. Thay lớp `DB` (`data.js`) và `Auth` (`auth.js`) bằng các lời gọi API. Băm mật khẩu, xác thực bằng token/session và phân quyền ở phía server.
-3. Lưu ảnh lên dịch vụ lưu trữ (S3, Cloudinary...) thay vì base64.
-4. Thay `askAI()` bằng API mô hình ngôn ngữ, tích hợp bản đồ vào khung `#roomMap`, và thay các số liệu mô phỏng ở admin bằng dữ liệu thật.
+`frontend/` hiện vẫn là prototype; việc di chuyển thư mục không biến dữ liệu mẫu thành dữ liệu thật. Backend dự kiến là một dự án Laravel độc lập tại `backend/`, với cấu trúc chuẩn do Composer/Laravel tạo ra (`app/`, `routes/`, `database/migrations/`, `resources/views/`, `storage/` và `public/`). Chỉ `backend/public/` nên được cấu hình làm document root khi triển khai.
+
+Để khởi tạo backend, cần cài PHP và Composer, sau đó tạo dự án Laravel trong `backend/` theo hướng dẫn chính thức của Laravel. Các tệp `.env` chứa thông tin kết nối MySQL và khóa ứng dụng phải nằm trong backend, không commit lên Git. Hiện môi trường làm việc chưa có PHP/Composer nên backend chưa được khởi tạo hoặc kiểm thử.
+
+Các bước tích hợp tiếp theo:
+
+1. Tạo migrations, models, seeders và API cho người dùng, tin đăng, ảnh, tiện ích, báo cáo và nhật ký.
+2. Thay `DB` trong `frontend/assets/js/data.js` và `Auth` trong `frontend/assets/js/auth.js` bằng lời gọi API; xác thực và phân quyền phải được kiểm tra ở server.
+3. Khi tích hợp giao diện vào Laravel, chuyển các trang sang Blade trong `resources/views/` hoặc phục vụ frontend riêng và cấu hình API/CORS rõ ràng.
+4. Lưu mật khẩu đã băm ở server và chuyển ảnh từ base64 sang lưu trữ tệp phù hợp; không dùng dữ liệu prototype hoặc tài khoản demo trong production.
