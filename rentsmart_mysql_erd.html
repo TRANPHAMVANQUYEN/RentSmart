@@ -1821,6 +1821,12 @@ svg.erDiagram .divider path {
   stroke-width: 0.5px !important;
   fill: none !important;
 }
+svg.erDiagram .node path[stroke]:not([stroke="none"]),
+svg.erDiagram .node rect[stroke]:not([stroke="none"]),
+svg.erDiagram .divider path {
+  stroke: #000 !important;
+  stroke-width: 1px !important;
+}
 svg.classDiagram .node .basic path[fill]:not([fill="none"]) {
   fill: var(--surface-2) !important;
   stroke: none !important;
@@ -1855,6 +1861,30 @@ svg.classDiagram .labelBkg,
 svg.erDiagram .labelBkg {
   background-color: var(--surface-2) !important;
   opacity: 1 !important;
+}
+svg.erDiagram .nodeLabel,
+svg.erDiagram .label foreignObject div,
+svg.erDiagram .edgeLabel,
+svg.erDiagram .edgeLabel span,
+svg.erDiagram text,
+svg.erDiagram tspan,
+svg.erDiagram .name .nodeLabel,
+svg.erDiagram .name .nodeLabel span,
+svg.erDiagram .name .nodeLabel div {
+  color: #000 !important;
+  fill: #000 !important;
+}
+svg.erDiagram .node > g:first-child > path[fill]:not([fill="none"]),
+svg.erDiagram .node > g:first-child > rect[fill]:not([fill="none"]),
+svg.erDiagram .row-rect-odd path[fill]:not([fill="none"]),
+svg.erDiagram .row-rect-odd rect[fill]:not([fill="none"]),
+svg.erDiagram .row-rect-even path[fill]:not([fill="none"]),
+svg.erDiagram .row-rect-even rect[fill]:not([fill="none"]),
+svg.erDiagram .labelBkg {
+  fill: #fff !important;
+}
+svg.erDiagram .labelBkg {
+  background-color: #fff !important;
 }
 body {
   position: relative;
@@ -2435,7 +2465,7 @@ body[data-not-sent] > #vis-container ~ #not-sent {
   --shadow-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.1);
   --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
   --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1);
-}</style><style>body { padding: 16px; background: var(--surface-1); }
+}</style><style>body { padding: 16px; background: #fff; }
 #vis-container { overflow: visible; }</style></head><body><svg style="position:absolute;width:0;height:0" aria-hidden="true">
     <defs>
       <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
