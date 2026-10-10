@@ -2,26 +2,26 @@
    RentSmart HCM - admin/tong-quan.js
    Tổng quan số liệu và danh sách việc cần xử lý ngay.
    ========================================================== */
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
   const shell = AdminUI.mount('tong-quan', 'Tổng quan');
   if (!shell) return;
   const root = shell.content;
   let charts = [];
+  let stats;
 
-  function roomStatusUpdate(room, status, note, actionLabel) {
-    room.status = status;
-    room.statusNote = note || '';
-    room.updatedAt = new Date().toISOString();
-    DB.save();
-    DB.log(actionLabel, `Tin #${room.id}`, note || room.title);
+  async function roomStatusUpdate(room, status, note) {
+    await AdminAPI.write('PATCH', `rooms/${room.id}`, { status, rejectReason: note || null });
+    await AdminAPI.hydrate(['rooms', 'reports'], root);
   }
 
   async function handleApprove(id) {
     const room = DB.room(id);
     if (!room) return;
-    roomStatusUpdate(room, 'approved', '', 'Duyệt tin');
-    toast('Đã duyệt tin thành công.');
-    render();
+    try {
+      await roomStatusUpdate(room, 'approved', '');
+      toast('Đã duyệt tin thành công.');
+      await refresh();
+    } catch (error) { toast(error.message, 'error'); }
   }
 
   async function handleReject(id) {
@@ -36,9 +36,11 @@ document.addEventListener('DOMContentLoaded', () => {
       reasonRequired: true
     });
     if (!result.ok) return;
-    roomStatusUpdate(room, 'rejected', result.reason, 'Từ chối tin');
-    toast('Đã từ chối tin đăng.', 'info');
-    render();
+    try {
+      await roomStatusUpdate(room, 'rejected', result.reason);
+      toast('Đã từ chối tin đăng.', 'info');
+      await refresh();
+    } catch (error) { toast(error.message, 'error'); }
   }
 
   async function handleReport(reportId, removeRoom) {
@@ -54,18 +56,14 @@ document.addEventListener('DOMContentLoaded', () => {
       reasonRequired: removeRoom
     });
     if (!result.ok) return;
-    if (removeRoom && room) {
-      room.status = 'removed';
-      room.statusNote = result.reason;
-      room.updatedAt = new Date().toISOString();
-      DB.log('Gỡ tin', `Tin #${room.id}`, `Từ báo cáo #${report.id}: ${result.reason}`);
-    }
-    report.status = 'done';
-    report.note = result.reason || 'Đã kiểm tra thủ công';
-    DB.save();
-    DB.log('Xử lý báo cáo', `Báo cáo #${report.id}`, report.note);
-    toast(removeRoom ? 'Đã gỡ tin từ báo cáo.' : 'Đã cập nhật báo cáo.');
-    render();
+    try {
+      await AdminAPI.write('POST', `reports/${report.id}/resolve`, {
+        action: removeRoom ? 'remove' : 'ignore',
+        note: result.reason || 'Đã kiểm tra thủ công'
+      });
+      await refresh();
+      toast(removeRoom ? 'Đã gỡ tin từ báo cáo.' : 'Đã cập nhật báo cáo.');
+    } catch (error) { toast(error.message, 'error'); }
   }
 
   function destroyCharts() {
@@ -73,48 +71,29 @@ document.addEventListener('DOMContentLoaded', () => {
     charts = [];
   }
 
-  function buildTrendSeries(days = 30) {
-    let base = 620;
-    return Array.from({ length: days }, (_, idx) => {
-      base += Math.round(Math.sin(idx / 3) * 18 + (idx % 5 === 0 ? 24 : -8));
-      return Math.max(420, base + (idx % 4) * 6);
-    });
-  }
-
   function renderCharts() {
     destroyCharts();
     const rooms = DB.t('rooms');
     const users = DB.t('users');
-    const visitsSeries = buildTrendSeries(30);
+    const daily = new Map(stats.dailyViews.map(item => [item.day, Number(item.total)]));
     const visitsLabels = Array.from({ length: 30 }, (_, idx) => {
       const d = new Date();
       d.setDate(d.getDate() - (29 - idx));
-      return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`;
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      return { label: `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`, key };
     });
-
-    const weeks = Array.from({ length: 8 }, (_, idx) => idx);
-    const weeklyNewRooms = weeks.map(offset => {
-      const start = new Date();
-      start.setDate(start.getDate() - (7 * (7 - offset)));
-      const end = new Date(start);
-      end.setDate(end.getDate() + 6);
-      return rooms.filter(room => new Date(room.createdAt) >= start && new Date(room.createdAt) <= end).length;
-    });
-
-    const roomTypeCounts = Object.keys(ROOM_TYPES).map(key => rooms.filter(room => room.roomType === key).length);
-    const roleCounts = ['tenant', 'landlord', 'admin'].map(role => users.filter(user => user.role === role).length);
-    const topDistricts = [...DISTRICTS]
-      .map(name => ({ name, count: rooms.filter(room => room.district === name).length }))
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 5);
+    const weeks = stats.weeklyRooms;
+    const roomTypeCounts = Object.keys(ROOM_TYPES).map(key => Number(stats.roomsByType[key] || 0));
+    const roleCounts = ['tenant', 'landlord', 'admin'].map(role => Number(stats.usersByRole[role] || 0));
+    const topDistricts = stats.topDistricts;
 
     charts.push(new Chart(document.getElementById('ovVisitsChart'), {
       type: 'line',
       data: {
-        labels: visitsLabels,
+        labels: visitsLabels.map(item => item.label),
         datasets: [{
           label: 'Lượt truy cập',
-          data: visitsSeries,
+          data: visitsLabels.map(item => daily.get(item.key) || 0),
           borderColor: AdminUI.CHART_COLORS.primary,
           backgroundColor: 'rgba(194, 65, 12, .12)',
           fill: true,
@@ -136,8 +115,8 @@ document.addEventListener('DOMContentLoaded', () => {
     charts.push(new Chart(document.getElementById('ovWeeklyListingsChart'), {
       type: 'bar',
       data: {
-        labels: weeks.map(i => `Tuần ${i + 1}`),
-        datasets: [{ label: 'Tin mới', data: weeklyNewRooms, backgroundColor: AdminUI.CHART_COLORS.primarySoft, borderRadius: 10 }]
+        labels: weeks.map(item => `Tuần ${String(item.week).slice(-2)}`),
+        datasets: [{ label: 'Tin mới', data: weeks.map(item => Number(item.total)), backgroundColor: AdminUI.CHART_COLORS.primarySoft, borderRadius: 10 }]
       },
       options: {
         maintainAspectRatio: false,
@@ -171,7 +150,7 @@ document.addEventListener('DOMContentLoaded', () => {
       type: 'bar',
       data: {
         labels: topDistricts.map(item => item.name),
-        datasets: [{ label: 'Số tin', data: topDistricts.map(item => item.count), backgroundColor: AdminUI.CHART_COLORS.primary, borderRadius: 10 }]
+        datasets: [{ label: 'Số tin', data: topDistricts.map(item => Number(item.total)), backgroundColor: AdminUI.CHART_COLORS.primary, borderRadius: 10 }]
       },
       options: {
         indexAxis: 'y',
@@ -190,27 +169,24 @@ document.addEventListener('DOMContentLoaded', () => {
     const rooms = DB.t('rooms');
     const pendingRooms = rooms.filter(room => room.status === 'pending').sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
     const openReports = DB.t('reports').filter(report => report.status === 'open').sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-    const todayViews = rooms.reduce((sum, room) => sum + (room.views || 0), 0) + 480;
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-    const newAccounts = users.filter(user => new Date(user.createdAt) >= sevenDaysAgo).length;
+    const counts = stats.counts;
 
     root.innerHTML = `<section class="kpi-grid mb-4">
       ${[
-        ['bi-people', 'Tổng tài khoản', users.length],
-        ['bi-person-hearts', 'Người thuê', users.filter(user => user.role === 'tenant').length],
-        ['bi-house-door', 'Chủ nhà', users.filter(user => user.role === 'landlord').length],
-        ['bi-card-list', 'Tổng tin đăng', rooms.length],
-        ['bi-hourglass-split', 'Tin chờ duyệt', pendingRooms.length],
-        ['bi-flag', 'Tin vi phạm / bị gỡ', rooms.filter(room => ['removed', 'rejected'].includes(room.status)).length],
-        ['bi-graph-up-arrow', 'Lượt truy cập hôm nay', formatMoney(todayViews)],
-        ['bi-person-plus', 'Tài khoản mới 7 ngày', newAccounts]
+        ['bi-people', 'Tổng tài khoản', counts.users],
+        ['bi-person-hearts', 'Người thuê', counts.tenants],
+        ['bi-house-door', 'Chủ nhà', counts.landlords],
+        ['bi-card-list', 'Tổng tin đăng', counts.rooms],
+        ['bi-hourglass-split', 'Tin chờ duyệt', counts.pendingRooms],
+        ['bi-flag', 'Tin vi phạm / bị gỡ', counts.removedRooms + counts.rejectedRooms],
+        ['bi-graph-up-arrow', 'Lượt truy cập hôm nay', formatMoney(counts.todayViews)],
+        ['bi-person-plus', 'Tài khoản mới 7 ngày', counts.newAccounts]
       ].map(item => `<article class="metric-card"><div class="metric-icon"><i class="bi ${item[0]}"></i></div><div><small>${item[1]}</small><strong>${item[2]}</strong></div></article>`).join('')}
     </section>
 
     <section class="chart-grid-2 mb-4">
       <article class="chart-card">
-        <div class="chart-head"><div><h2 class="h5 mb-1">Lượt truy cập 30 ngày gần nhất</h2><p class="card-subtle mb-0">Dữ liệu mô phỏng theo xu hướng tăng ổn định.</p></div></div>
+        <div class="chart-head"><div><h2 class="h5 mb-1">Lượt truy cập 30 ngày gần nhất</h2><p class="card-subtle mb-0">${stats.dailyViews.length ? 'Dữ liệu lượt xem được ghi nhận trong hệ thống.' : 'Chưa có dữ liệu lượt xem được ghi nhận.'}</p></div></div>
         <div class="chart-canvas-wrap"><canvas id="ovVisitsChart" aria-label="Biểu đồ lượt truy cập 30 ngày" role="img"></canvas></div>
       </article>
       <article class="chart-card">
@@ -284,6 +260,18 @@ document.addEventListener('DOMContentLoaded', () => {
     root.querySelectorAll('[data-remove-report-room]').forEach(btn => btn.addEventListener('click', () => handleReport(+btn.dataset.removeReportRoom, true)));
   }
 
-  render();
+  async function refresh() {
+    try {
+      const [ok, nextStats] = await Promise.all([
+        AdminAPI.hydrate(['users', 'rooms', 'reports'], root),
+        AdminAPI.request('dashboard')
+      ]);
+      if (!ok) return;
+      stats = nextStats;
+      render();
+    } catch (error) { toast(error.message, 'error'); }
+  }
+
+  await refresh();
   window.addEventListener('pagehide', () => destroyCharts(), { once: true });
 });

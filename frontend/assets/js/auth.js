@@ -1,34 +1,126 @@
 /* ==========================================================
    RentSmart HCM - auth.js
-   Đăng nhập / đăng ký / phân quyền bằng localStorage (CHỈ DÙNG CHO DEMO).
-   Mật khẩu thật phải được băm ở backend, không bao giờ lưu thô.
+   Đăng nhập / đăng ký qua Laravel API với token Sanctum.
    ========================================================== */
 const Auth = {
   SESSION_KEY: 'rs_session',
+  TOKEN_KEY: 'rs_token',
+  API_BASE: 'http://127.0.0.1:8001/api',
+  savedSync: null,
 
-  // Người dùng hiện tại (đọc từ localStorage nếu "ghi nhớ", ngược lại từ sessionStorage)
+  imageUrl(value) {
+    if (!value) return value;
+    if (typeof value !== 'string') return value;
+    if (/^https?:\/\//i.test(value) || /^(data|blob):/i.test(value)) return value;
+    if (!value.startsWith('/storage/')) return value;
+    return new URL(value, new URL(this.API_BASE).origin).href;
+  },
+
+  // Dữ liệu hồ sơ chỉ dùng để hiển thị; quyền truy cập API luôn được kiểm tra ở backend.
   current() {
     const raw = localStorage.getItem(this.SESSION_KEY) || sessionStorage.getItem(this.SESSION_KEY);
     if (!raw) return null;
-    const u = DB.user(+raw);
-    return u && u.status !== 'locked' ? u : null;
+    try {
+      const user = JSON.parse(raw);
+      return user && user.id && user.status !== 'locked' ? user : null;
+    } catch (error) {
+      localStorage.removeItem(this.SESSION_KEY);
+      sessionStorage.removeItem(this.SESSION_KEY);
+      return null;
+    }
   },
 
-  login(identifier, password, remember) {
-    const id = String(identifier).trim().toLowerCase();
-    const u = DB.t('users').find(x => x.username.toLowerCase() === id || x.email.toLowerCase() === id || x.phone === id);
-    if (!u || u.password !== password) return { ok: false, error: 'Sai tài khoản hoặc mật khẩu.' };
-    if (u.status === 'locked') return { ok: false, error: 'Tài khoản của bạn đã bị khóa. Vui lòng liên hệ hỗ trợ.' };
-    (remember ? localStorage : sessionStorage).setItem(this.SESSION_KEY, u.id);
-    u.lastLogin = new Date().toISOString();
-    DB.save();
-    if (u.role === 'admin') DB.log('Đăng nhập', 'Hệ thống quản trị', 'Đăng nhập thành công');
-    return { ok: true, user: u };
+  token() {
+    return localStorage.getItem(this.TOKEN_KEY) || sessionStorage.getItem(this.TOKEN_KEY) || '';
   },
 
-  logout() {
-    localStorage.removeItem(this.SESSION_KEY);
-    sessionStorage.removeItem(this.SESSION_KEY);
+  saveCurrent(user) {
+    const storage = localStorage.getItem(this.TOKEN_KEY) ? localStorage : sessionStorage;
+    storage.setItem(this.SESSION_KEY, JSON.stringify(user));
+  },
+
+  async request(path, options = {}) {
+    const headers = new Headers(options.headers || {});
+    headers.set('Accept', 'application/json');
+    const token = this.token();
+    if (token) headers.set('Authorization', `Bearer ${token}`);
+    const response = await fetch(`${this.API_BASE}/${path}`, { ...options, headers });
+    const result = await response.json();
+    const validationMessage = result.errors && Object.values(result.errors).flat()[0];
+    if (!response.ok) throw new Error(validationMessage || result.message || `Yêu cầu thất bại (HTTP ${response.status}).`);
+    return result;
+  },
+
+  async login(identifier, password, remember) {
+    try {
+      const response = await fetch(`${this.API_BASE}/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ identifier: String(identifier).trim(), password })
+      });
+      const result = await response.json();
+      if (!response.ok) return { ok: false, error: result.message || 'Không thể đăng nhập.' };
+      if (!result.token || !result.user) throw new Error('Phản hồi đăng nhập từ máy chủ không hợp lệ.');
+
+      const storage = remember ? localStorage : sessionStorage;
+      const otherStorage = remember ? sessionStorage : localStorage;
+      otherStorage.removeItem(this.SESSION_KEY);
+      otherStorage.removeItem(this.TOKEN_KEY);
+      storage.setItem(this.SESSION_KEY, JSON.stringify(result.user));
+      storage.setItem(this.TOKEN_KEY, result.token);
+      return { ok: true, user: result.user };
+    } catch (error) {
+      return { ok: false, error: error.message || 'Không kết nối được máy chủ.' };
+    }
+  },
+
+  async logout() {
+    const token = this.token();
+    let failure = null;
+    try {
+      if (token) {
+        const response = await fetch(`${this.API_BASE}/logout`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' }
+        });
+        if (!response.ok) failure = new Error(`Máy chủ từ chối đăng xuất (HTTP ${response.status}).`);
+      }
+    } catch (error) {
+      failure = new Error('Không thể kết nối máy chủ để thu hồi token đăng nhập.');
+    } finally {
+      localStorage.removeItem(this.SESSION_KEY);
+      localStorage.removeItem(this.TOKEN_KEY);
+      sessionStorage.removeItem(this.SESSION_KEY);
+      sessionStorage.removeItem(this.TOKEN_KEY);
+    }
+    if (failure) throw failure;
+  },
+
+  async register(d) {
+    try {
+      const response = await fetch(`${this.API_BASE}/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({
+          username: d.username,
+          email: d.email,
+          phone: d.phone,
+          password: d.password,
+          fullName: d.fullName,
+          role: d.role
+        })
+      });
+      const result = await response.json();
+      if (response.ok) return { ok: true };
+      const field = result.errors ? Object.keys(result.errors)[0] : '';
+      return {
+        ok: false,
+        field: field === 'fullName' ? 'fullName' : field,
+        error: field ? result.errors[field][0] : (result.message || 'Không thể đăng ký.')
+      };
+    } catch (error) {
+      return { ok: false, error: error.message || 'Không kết nối được máy chủ.' };
+    }
   },
 
   // Trang chủ theo vai trò (đường dẫn tính từ thư mục gốc)
@@ -39,21 +131,6 @@ const Auth = {
   // Chỉ chấp nhận redirect là đường dẫn tương đối nội bộ (tránh open redirect)
   safeRedirect(url) {
     return url && /^[\w\-./?=&%]+$/.test(url) && !url.includes('..') && !url.startsWith('/') ? url : '';
-  },
-
-  register(d) {
-    if (!['tenant', 'landlord'].includes(d.role)) return { ok: false, error: 'Vai trò không hợp lệ.' };
-    const users = DB.t('users');
-    if (users.some(u => u.username.toLowerCase() === d.username.toLowerCase())) return { ok: false, field: 'username', error: 'Tên đăng nhập đã tồn tại.' };
-    if (users.some(u => u.email.toLowerCase() === d.email.toLowerCase())) return { ok: false, field: 'email', error: 'Email đã được sử dụng.' };
-    if (users.some(u => u.phone === d.phone)) return { ok: false, field: 'phone', error: 'Số điện thoại đã được sử dụng.' };
-    users.push({
-      id: DB.nextId('users'), username: d.username, email: d.email, phone: d.phone, password: d.password,
-      fullName: d.fullName, avatar: '', role: d.role, status: 'active', createdAt: new Date().toISOString(), lastLogin: '',
-      managedRooms: d.managedRooms || '', activeArea: d.activeArea || ''
-    });
-    DB.save();
-    return { ok: true };
   },
 
   // Bảo vệ trang theo vai trò. Không đủ quyền -> chuyển về trang đăng nhập.
@@ -71,8 +148,28 @@ const Auth = {
   _list(kind) { const k = this._key(kind); try { return k ? JSON.parse(localStorage.getItem(k)) || [] : []; } catch (e) { return []; } },
   saved() { return this._list('saved'); },
   isSaved(id) { return this.saved().includes(+id); },
+  async syncSaved() {
+    const user = this.current();
+    if (!user || !['tenant', 'landlord'].includes(user.role)) return;
+    if (!this.savedSync) {
+      this.savedSync = this.request('saved-rooms').then(rooms => {
+        const ids = rooms.map(room => Number(room.id));
+        localStorage.setItem(this._key('saved'), JSON.stringify(ids));
+        document.querySelectorAll('[data-save]').forEach(button => {
+          const saved = ids.includes(Number(button.dataset.save));
+          button.classList.toggle('saved', saved);
+          button.setAttribute('aria-pressed', String(saved));
+          const icon = button.querySelector('i');
+          if (icon) icon.className = `bi ${saved ? 'bi-heart-fill' : 'bi-heart'}`;
+          button.setAttribute('aria-label', saved ? 'Bỏ lưu tin' : 'Lưu tin');
+        });
+        return ids;
+      }).finally(() => { this.savedSync = null; });
+    }
+    return this.savedSync;
+  },
   // Trả về true/false (trạng thái mới) hoặc null nếu phải đăng nhập
-  toggleSaved(id) {
+  async toggleSaved(id) {
     id = +id;
     if (!this.current()) {
       const base = document.body.dataset.base || '';
@@ -80,11 +177,12 @@ const Auth = {
       location.href = `${base}dang-nhap.html?redirect=${encodeURIComponent(base ? here : (here || 'index.html'))}`;
       return null;
     }
-    const list = this.saved();
-    const i = list.indexOf(id);
-    i >= 0 ? list.splice(i, 1) : list.unshift(id);
+    await this.syncSaved();
+    const result = await this.request(`saved-rooms/${id}/toggle`, { method: 'POST' });
+    const list = this.saved().filter(savedId => savedId !== id);
+    if (result.saved) list.unshift(id);
     localStorage.setItem(this._key('saved'), JSON.stringify(list));
-    return i < 0;
+    return Boolean(result.saved);
   },
   viewed() { return this._list('viewed'); },
   addViewed(id) {

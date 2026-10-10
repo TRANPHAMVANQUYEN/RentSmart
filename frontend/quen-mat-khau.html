@@ -14,11 +14,12 @@
   <div class="auth-card">
     <a class="brand" href="index.html"><span class="brand-icon"><i class="bi bi-house-heart-fill"></i></span><span>Rent<span>Smart</span></span></a>
     <h1>Quên mật khẩu</h1>
+    <div class="alert alert-danger d-none" id="formError" role="alert"></div>
     <div class="alert alert-success d-none" id="formOk" role="status">Nếu email tồn tại trong hệ thống, chúng tôi đã gửi hướng dẫn đặt lại mật khẩu.</div>
     <form id="forgotForm" novalidate>
       <p class="text-muted">Nhập email đã đăng ký, chúng tôi sẽ gửi liên kết đặt lại mật khẩu.</p>
       <div class="mb-3"><label class="form-label" for="email">Email</label><input type="email" class="form-control" id="email" autocomplete="email" required><div class="invalid-feedback">Email không hợp lệ.</div></div>
-      <button class="btn btn-primary w-100">Gửi hướng dẫn</button>
+      <button class="btn btn-primary w-100" type="submit">Gửi hướng dẫn</button>
     </form>
     <p class="text-center mt-3 mb-0"><a href="dang-nhap.html"><i class="bi bi-arrow-left"></i> Quay lại đăng nhập</a></p>
   </div>

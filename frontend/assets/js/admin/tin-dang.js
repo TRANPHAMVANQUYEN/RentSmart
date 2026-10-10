@@ -2,7 +2,7 @@
    RentSmart HCM - admin/tin-dang.js
    Quản lý và kiểm duyệt tin đăng của toàn hệ thống.
    ========================================================== */
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
   const shell = AdminUI.mount('tin-dang', 'Quản lý & kiểm duyệt tin');
   if (!shell) return;
   const root = shell.content;
@@ -104,7 +104,7 @@ document.addEventListener('DOMContentLoaded', () => {
       mode: 'admin',
       onSaved() {
         modal.close();
-        render(false);
+        AdminAPI.hydrate(['users', 'rooms', 'reports'], root).then(ok => { if (ok) render(false); });
       },
       onCancel() { modal.close(); }
     });
@@ -121,7 +121,7 @@ document.addEventListener('DOMContentLoaded', () => {
       scrollable: true,
       body: `<div class="detail-grid">
         <section class="detail-card">
-          <img class="gallery-cover mb-3" src="${esc(DB.cover(room.id))}" alt="${esc(room.title)}" loading="lazy">
+          ${room.coverImage ? `<img class="gallery-cover mb-3" src="${esc(room.coverImage)}" alt="${esc(room.title)}" loading="lazy">` : '<div class="empty-state">Tin đăng chưa có ảnh.</div>'}
           <div class="gallery-grid">${images.map(img => `<img src="${esc(img.imageUrl)}" alt="Ảnh tin ${room.id}" loading="lazy">`).join('')}</div>
         </section>
         <section class="detail-card">
@@ -141,18 +141,20 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  function saveRoomStatus(room, status, note, action) {
-    room.status = status;
-    room.statusNote = note || '';
-    room.updatedAt = new Date().toISOString();
-    DB.save();
-    DB.log(action, `Tin #${room.id}`, note || room.title);
+  async function saveRoomStatus(room, status, note, action) {
+    await AdminAPI.write('PATCH', `rooms/${room.id}`, { status, rejectReason: note || null });
+    await AdminAPI.hydrate(['rooms', 'reports'], root);
   }
 
-  function approveRoom(room) {
-    saveRoomStatus(room, 'approved', '', 'Duyệt tin');
-    toast('Đã duyệt tin đăng.');
-    render(false);
+  async function approveRoom(room) {
+    try {
+      await saveRoomStatus(room, 'approved', '', 'Duyệt tin');
+      toast('Đã duyệt tin đăng.');
+      render(false);
+    } catch (error) {
+      await AdminAPI.hydrate(['rooms', 'reports'], root);
+      toast(error.message, 'error');
+    }
   }
 
   async function rejectRoom(room) {
@@ -165,9 +167,14 @@ document.addEventListener('DOMContentLoaded', () => {
       reasonRequired: true
     });
     if (!result.ok) return;
-    saveRoomStatus(room, 'rejected', result.reason, 'Từ chối tin');
-    toast('Đã từ chối tin đăng.', 'info');
-    render(false);
+    try {
+      await saveRoomStatus(room, 'rejected', result.reason, 'Từ chối tin');
+      toast('Đã từ chối tin đăng.', 'info');
+      render(false);
+    } catch (error) {
+      await AdminAPI.hydrate(['rooms', 'reports'], root);
+      toast(error.message, 'error');
+    }
   }
 
   async function removeRoom(room) {
@@ -180,9 +187,14 @@ document.addEventListener('DOMContentLoaded', () => {
       reasonRequired: true
     });
     if (!result.ok) return;
-    saveRoomStatus(room, 'removed', result.reason, 'Gỡ tin');
-    toast('Đã gỡ tin khỏi trang công khai.', 'info');
-    render(false);
+    try {
+      await saveRoomStatus(room, 'removed', result.reason, 'Gỡ tin');
+      toast('Đã gỡ tin khỏi trang công khai.', 'info');
+      render(false);
+    } catch (error) {
+      await AdminAPI.hydrate(['rooms', 'reports'], root);
+      toast(error.message, 'error');
+    }
   }
 
   async function restoreRoom(room) {
@@ -192,9 +204,14 @@ document.addEventListener('DOMContentLoaded', () => {
       confirmText: 'Khôi phục'
     });
     if (!result.ok) return;
-    saveRoomStatus(room, 'approved', '', 'Khôi phục tin');
-    toast('Đã khôi phục tin đăng.');
-    render(false);
+    try {
+      await saveRoomStatus(room, 'approved', '', 'Khôi phục tin');
+      toast('Đã khôi phục tin đăng.');
+      render(false);
+    } catch (error) {
+      await AdminAPI.hydrate(['rooms', 'reports'], root);
+      toast(error.message, 'error');
+    }
   }
 
   async function deleteForever(room) {
@@ -207,20 +224,22 @@ document.addEventListener('DOMContentLoaded', () => {
       reasonRequired: true
     });
     if (!result.ok) return;
-    DB.deleteRoom(room.id);
-    DB.save();
-    DB.log('Xóa vĩnh viễn tin', `Tin #${room.id}`, result.reason);
-    toast('Đã xóa vĩnh viễn tin đăng.', 'info');
-    render(false);
+    try {
+      await AdminAPI.write('DELETE', `rooms/${room.id}`, { note: result.reason });
+      await AdminAPI.hydrate(['rooms', 'reports'], root);
+      toast('Đã xóa vĩnh viễn tin đăng.', 'info');
+      render(false);
+    } catch (error) { toast(error.message, 'error'); }
   }
 
-  function toggleFeatured(room) {
-    room.featured = !room.featured;
-    room.updatedAt = new Date().toISOString();
-    DB.save();
-    DB.log(room.featured ? 'Ghim tin nổi bật' : 'Bỏ ghim tin', `Tin #${room.id}`, room.title);
-    toast(room.featured ? 'Đã ghim tin nổi bật.' : 'Đã bỏ ghim tin.');
-    render(false);
+  async function toggleFeatured(room) {
+    try {
+      await AdminAPI.write('PATCH', `rooms/${room.id}`, { featured: !room.featured });
+      await AdminAPI.hydrate(['rooms'], root);
+      room = DB.room(room.id);
+      toast(room.featured ? 'Đã ghim tin nổi bật.' : 'Đã bỏ ghim tin.');
+      render(false);
+    } catch (error) { toast(error.message, 'error'); }
   }
 
   async function bulkAction(action) {
@@ -228,15 +247,16 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!ids.length) return;
     const rooms = ids.map(id => DB.room(id)).filter(Boolean);
     if (action === 'approve') {
-      rooms.forEach(room => {
-        room.status = 'approved';
-        room.statusNote = '';
-      });
-      DB.save();
-      DB.log('Duyệt tin hàng loạt', `${rooms.length} tin`, 'Thao tác từ trang kiểm duyệt tin');
-      toast('Đã duyệt các tin được chọn.');
-      state.selected.clear();
-      render(false);
+      try {
+        await Promise.all(rooms.map(room => AdminAPI.write('PATCH', `rooms/${room.id}`, { status: 'approved' })));
+        await AdminAPI.hydrate(['rooms', 'reports'], root);
+        toast('Đã duyệt các tin được chọn.');
+        state.selected.clear();
+        render(false);
+      } catch (error) {
+        await AdminAPI.hydrate(['rooms', 'reports'], root);
+        toast(error.message, 'error');
+      }
       return;
     }
     const result = await confirmDialog({
@@ -248,18 +268,18 @@ document.addEventListener('DOMContentLoaded', () => {
       reasonRequired: true
     });
     if (!result.ok) return;
-    rooms.forEach(room => {
-      if (action === 'delete') DB.deleteRoom(room.id);
-      else {
-        room.status = 'removed';
-        room.statusNote = result.reason;
-      }
-    });
-    DB.save();
-    DB.log(action === 'delete' ? 'Xóa vĩnh viễn tin hàng loạt' : 'Gỡ tin hàng loạt', `${rooms.length} tin`, result.reason);
-    toast(action === 'delete' ? 'Đã xóa các tin được chọn.' : 'Đã gỡ các tin được chọn.', 'info');
-    state.selected.clear();
-    render(false);
+    try {
+      await Promise.all(rooms.map(room => action === 'delete'
+        ? AdminAPI.write('DELETE', `rooms/${room.id}`, { note: result.reason })
+        : AdminAPI.write('PATCH', `rooms/${room.id}`, { status: 'removed', rejectReason: result.reason })));
+      await AdminAPI.hydrate(['rooms', 'reports'], root);
+      toast(action === 'delete' ? 'Đã xóa các tin được chọn.' : 'Đã gỡ các tin được chọn.', 'info');
+      state.selected.clear();
+      render(false);
+    } catch (error) {
+      await AdminAPI.hydrate(['rooms', 'reports'], root);
+      toast(error.message, 'error');
+    }
   }
 
   function render(showLoading = false) {
@@ -364,7 +384,7 @@ document.addEventListener('DOMContentLoaded', () => {
           <tbody>
             ${pageInfo.items.length ? pageInfo.items.map(room => `<tr>
               <td><input type="checkbox" class="form-check-input row-select" data-id="${room.id}" ${state.selected.has(room.id) ? 'checked' : ''} aria-label="Chọn tin ${esc(room.title)}"></td>
-              <td><img class="thumb" src="${esc(DB.cover(room.id))}" alt="${esc(room.title)}" loading="lazy"></td>
+              <td>${room.coverImage ? `<img class="thumb" src="${esc(room.coverImage)}" alt="${esc(room.title)}" loading="lazy">` : '<span class="text-muted small">Chưa có ảnh</span>'}</td>
               <td><div class="fw-semibold">${esc(room.title)}</div><small>${ROOM_TYPES[room.roomType]}${room.featured ? ' · Đã ghim' : ''}</small></td>
               <td>${room.owner ? esc(room.owner.fullName) : 'Không xác định'}</td>
               <td>${esc(room.district)}</td>
@@ -461,5 +481,5 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   document.getElementById('addRoomForOwnerBtn').addEventListener('click', () => openRoomModal());
-  render(true);
+  if (await AdminAPI.hydrate(['users', 'rooms', 'reports', 'districts', 'amenities'], root)) render(false);
 });

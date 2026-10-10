@@ -37,7 +37,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const form = document.getElementById('adminLoginForm');
   const errorBox = document.getElementById('adminLoginError');
-  form.addEventListener('submit', e => {
+  form.addEventListener('submit', async e => {
     e.preventDefault();
     errorBox.classList.add('d-none');
     const identifier = document.getElementById('adminIdentifier').value.trim();
@@ -48,14 +48,14 @@ document.addEventListener('DOMContentLoaded', () => {
       errorBox.classList.remove('d-none');
       return;
     }
-    const result = Auth.login(identifier, password, remember);
+    const result = await Auth.login(identifier, password, remember);
     if (!result.ok) {
       errorBox.textContent = result.error;
       errorBox.classList.remove('d-none');
       return;
     }
     if (!result.user || result.user.role !== 'admin') {
-      Auth.logout();
+      await Auth.logout();
       errorBox.textContent = 'Tài khoản này không có quyền truy cập khu vực quản trị.';
       errorBox.classList.remove('d-none');
       return;

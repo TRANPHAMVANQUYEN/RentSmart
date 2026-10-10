@@ -2,7 +2,7 @@
    RentSmart HCM - admin/tai-khoan.js
    Quản lý toàn bộ tài khoản trong hệ thống.
    ========================================================== */
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
   const shell = AdminUI.mount('tai-khoan', 'Quản lý tài khoản');
   if (!shell) return;
   const root = shell.content;
@@ -120,7 +120,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     const form = modal.body.querySelector('#accountForm');
-    modal.footer.querySelector('#saveAccountBtn').addEventListener('click', () => {
+    modal.footer.querySelector('#saveAccountBtn').addEventListener('click', async () => {
       const payload = {
         fullName: form.querySelector('#accFullName').value.trim(),
         username: form.querySelector('#accUsername').value.trim(),
@@ -128,6 +128,7 @@ document.addEventListener('DOMContentLoaded', () => {
         phone: form.querySelector('#accPhone').value.trim(),
         role: form.querySelector('#accRole').value,
         status: form.querySelector('#accStatus').value,
+        lockReason: user && user.lockReason ? user.lockReason : '',
         password: form.querySelector('#accPassword').value,
         avatar: form.querySelector('#accAvatar').value.trim()
       };
@@ -149,36 +150,18 @@ document.addEventListener('DOMContentLoaded', () => {
         toast('Tên đăng nhập, email hoặc số điện thoại đã tồn tại.', 'error');
         return;
       }
-      if (isEdit) {
-        user.fullName = payload.fullName;
-        user.username = payload.username;
-        user.email = payload.email;
-        user.phone = payload.phone;
-        user.role = payload.role;
-        user.status = payload.status;
-        user.avatar = payload.avatar;
-        if (payload.password) user.password = payload.password;
-        DB.log('Cập nhật tài khoản', user.username, `Vai trò: ${USER_ROLES[user.role]}`);
-      } else {
-        DB.t('users').push({
-          id: DB.nextId('users'),
-          fullName: payload.fullName,
-          username: payload.username,
-          email: payload.email,
-          phone: payload.phone,
-          role: payload.role,
-          status: payload.status,
-          avatar: payload.avatar,
-          password: payload.password,
-          createdAt: new Date().toISOString(),
-          lastLogin: ''
-        });
-        DB.log('Thêm tài khoản', payload.username, `Vai trò: ${USER_ROLES[payload.role]}`);
+      const button = modal.footer.querySelector('#saveAccountBtn');
+      button.disabled = true;
+      try {
+        await AdminAPI.write(isEdit ? 'PUT' : 'POST', isEdit ? `users/${user.id}` : 'users', payload);
+        await AdminAPI.hydrate(['users', 'rooms', 'reports'], root);
+        toast(isEdit ? 'Đã cập nhật tài khoản.' : 'Đã tạo tài khoản mới.');
+        modal.close();
+        render(false);
+      } catch (error) {
+        toast(error.message, 'error');
+        button.disabled = false;
       }
-      DB.save();
-      toast(isEdit ? 'Đã cập nhật tài khoản.' : 'Đã tạo tài khoản mới.');
-      modal.close();
-      render(false);
     });
   }
 
@@ -229,13 +212,10 @@ document.addEventListener('DOMContentLoaded', () => {
         confirmText: 'Mở khóa'
       }).then(result => {
         if (!result.ok) return;
-        user.status = 'active';
-        user.lockReason = '';
-        user.lockUntil = '';
-        DB.save();
-        DB.log('Mở khóa tài khoản', user.username, 'Mở khóa thủ công từ trang quản trị');
-        toast('Đã mở khóa tài khoản.');
-        render(false);
+        AdminAPI.write('PATCH', `users/${user.id}/status`, { status: 'active' })
+          .then(() => AdminAPI.hydrate(['users'], root))
+          .then(() => { toast('Đã mở khóa tài khoản.'); render(false); })
+          .catch(error => toast(error.message, 'error'));
       });
       return;
     }
@@ -253,21 +233,25 @@ document.addEventListener('DOMContentLoaded', () => {
       </form>`,
       footer: `<button type="button" class="btn btn-light-border" data-bs-dismiss="modal">Hủy</button><button type="button" class="btn btn-danger" id="confirmLockBtn">Khóa tài khoản</button>`
     });
-    modal.footer.querySelector('#confirmLockBtn').addEventListener('click', () => {
+    modal.footer.querySelector('#confirmLockBtn').addEventListener('click', async () => {
       const reason = modal.body.querySelector('#lockReason').value.trim();
       const until = modal.body.querySelector('#lockUntil').value;
       if (!reason) {
         toast('Vui lòng nhập lý do khóa tài khoản.', 'error');
         return;
       }
-      user.status = 'locked';
-      user.lockReason = reason;
-      user.lockUntil = until ? new Date(until).toISOString() : '';
-      DB.save();
-      DB.log('Khóa tài khoản', user.username, `${reason}${user.lockUntil ? ` · đến ${formatDateTime(user.lockUntil)}` : ''}`);
-      toast('Đã khóa tài khoản.', 'info');
-      modal.close();
-      render(false);
+      const button = modal.footer.querySelector('#confirmLockBtn');
+      button.disabled = true;
+      try {
+        await AdminAPI.write('PATCH', `users/${user.id}/status`, { status: 'locked', lockReason: `${reason}${until ? ` · đến ${formatDateTime(until)}` : ''}` });
+        await AdminAPI.hydrate(['users'], root);
+        toast('Đã khóa tài khoản.', 'info');
+        modal.close();
+        render(false);
+      } catch (error) {
+        toast(error.message, 'error');
+        button.disabled = false;
+      }
     });
   }
 
@@ -279,20 +263,42 @@ document.addEventListener('DOMContentLoaded', () => {
       danger: true,
       reasonLabel: 'Lý do xóa tài khoản',
       reasonRequired: true
-    }).then(result => {
+    }).then(async result => {
       if (!result.ok) return;
-      AdminUI.deleteUserCascade(user.id);
-      DB.save();
-      DB.log('Xóa tài khoản', user.username, result.reason);
-      toast('Đã xóa tài khoản và toàn bộ tin liên quan.', 'info');
-      render(false);
+      try {
+        await AdminAPI.write('DELETE', `users/${user.id}`, { note: result.reason });
+        await AdminAPI.hydrate(['users', 'rooms', 'reports'], root);
+        toast('Đã xóa tài khoản và toàn bộ tin liên quan.', 'info');
+        render(false);
+      } catch (error) {
+        await AdminAPI.hydrate(['users', 'rooms', 'reports'], root);
+        toast(error.message, 'error');
+      }
     });
   }
 
   function resetPassword(user) {
-    DB.log('Đặt lại mật khẩu', user.username, 'Giả lập yêu cầu đặt lại mật khẩu');
-    DB.save();
-    toast(`Đã gửi yêu cầu đặt lại mật khẩu cho ${user.username}.`);
+    const modal = AdminUI.openModal({
+      title: `Đặt lại mật khẩu · ${user.username}`,
+      body: '<label class="form-label" for="newAccountPassword">Mật khẩu mới</label><input id="newAccountPassword" type="password" class="form-control" minlength="8" autocomplete="new-password">',
+      footer: '<button type="button" class="btn btn-light-border" data-bs-dismiss="modal">Hủy</button><button type="button" class="btn btn-primary" id="saveNewPassword">Cập nhật mật khẩu</button>'
+    });
+    modal.footer.querySelector('#saveNewPassword').addEventListener('click', async () => {
+      const password = modal.body.querySelector('#newAccountPassword').value;
+      if (password.length < 8) { toast('Mật khẩu phải có ít nhất 8 ký tự.', 'error'); return; }
+      try {
+        await AdminAPI.write('PUT', `users/${user.id}`, {
+          fullName: user.fullName, username: user.username, email: user.email,
+          phone: user.phone, role: user.role, status: user.status,
+          avatar: user.avatar || '', lockReason: user.lockReason || '', password
+        });
+        toast('Đã cập nhật mật khẩu.');
+        modal.close();
+      } catch (error) {
+        await AdminAPI.hydrate(['users', 'rooms', 'reports'], root);
+        toast(error.message, 'error');
+      }
+    });
   }
 
   async function bulkAction(action) {
@@ -300,17 +306,17 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!ids.length) return;
     const users = ids.map(id => DB.user(id)).filter(Boolean);
     if (action === 'unlock') {
-      users.forEach(user => {
-        if (!AdminUI.canDangerOnUser(user, shell.admin)) return;
-        user.status = 'active';
-        user.lockReason = '';
-        user.lockUntil = '';
-      });
-      DB.save();
-      DB.log('Mở khóa hàng loạt', `${users.length} tài khoản`, 'Mở khóa từ bảng tài khoản');
-      toast('Đã mở khóa các tài khoản được chọn.');
-      state.selected.clear();
-      render(false);
+      try {
+        await Promise.all(users.filter(user => AdminUI.canDangerOnUser(user, shell.admin))
+          .map(user => AdminAPI.write('PATCH', `users/${user.id}/status`, { status: 'active' })));
+        await AdminAPI.hydrate(['users'], root);
+        toast('Đã mở khóa các tài khoản được chọn.');
+        state.selected.clear();
+        render(false);
+      } catch (error) {
+        await AdminAPI.hydrate(['users', 'rooms', 'reports'], root);
+        toast(error.message, 'error');
+      }
       return;
     }
     const confirm = await confirmDialog({
@@ -327,18 +333,18 @@ document.addEventListener('DOMContentLoaded', () => {
       toast('Không có tài khoản hợp lệ để xử lý.', 'error');
       return;
     }
-    validUsers.forEach(user => {
-      if (action === 'delete') AdminUI.deleteUserCascade(user.id);
-      else {
-        user.status = 'locked';
-        user.lockReason = confirm.reason;
-      }
-    });
-    DB.save();
-    DB.log(action === 'delete' ? 'Xóa tài khoản hàng loạt' : 'Khóa tài khoản hàng loạt', `${validUsers.length} tài khoản`, confirm.reason);
-    toast(action === 'delete' ? 'Đã xóa các tài khoản được chọn.' : 'Đã khóa các tài khoản được chọn.', action === 'delete' ? 'info' : 'success');
-    state.selected.clear();
-    render(false);
+    try {
+      await Promise.all(validUsers.map(user => action === 'delete'
+        ? AdminAPI.write('DELETE', `users/${user.id}`, { note: confirm.reason })
+        : AdminAPI.write('PATCH', `users/${user.id}/status`, { status: 'locked', lockReason: confirm.reason })));
+      await AdminAPI.hydrate(['users', 'rooms', 'reports'], root);
+      toast(action === 'delete' ? 'Đã xóa các tài khoản được chọn.' : 'Đã khóa các tài khoản được chọn.', action === 'delete' ? 'info' : 'success');
+      state.selected.clear();
+      render(false);
+    } catch (error) {
+      await AdminAPI.hydrate(['users', 'rooms', 'reports'], root);
+      toast(error.message, 'error');
+    }
   }
 
   function render(showLoading = false) {
@@ -490,5 +496,5 @@ document.addEventListener('DOMContentLoaded', () => {
 
   document.getElementById('addUserBtn').addEventListener('click', () => openAccountForm());
   document.getElementById('exportUsersBtn').addEventListener('click', () => downloadCSV('tai-khoan-rentsmart.csv', exportCSVRows()));
-  render(true);
+  if (await AdminAPI.hydrate(['users', 'rooms', 'reports'], root)) render(false);
 });

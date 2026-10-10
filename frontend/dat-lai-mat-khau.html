@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Đặt lại mật khẩu – RentSmart</title>
+  <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+  <link href="assets/css/main.css" rel="stylesheet">
+</head>
+<body data-base="">
+<main class="auth-page">
+  <div class="auth-card">
+    <a class="brand" href="index.html"><span class="brand-icon"><i class="bi bi-house-heart-fill"></i></span><span>Rent<span>Smart</span></span></a>
+    <h1>Đặt lại mật khẩu</h1>
+    <div class="alert alert-danger d-none" id="formError" role="alert"></div>
+    <div class="alert alert-success d-none" id="resetOk" role="status">
+      Mật khẩu đã được cập nhật. <a href="dang-nhap.html">Đăng nhập</a>
+    </div>
+    <form id="resetForm" novalidate>
+      <div class="mb-3">
+        <label class="form-label" for="email">Email</label>
+        <input type="email" class="form-control" id="email" autocomplete="email" required>
+        <div class="invalid-feedback">Email không hợp lệ.</div>
+      </div>
+      <div class="mb-3">
+        <label class="form-label" for="password">Mật khẩu mới</label>
+        <input type="password" class="form-control" id="password" autocomplete="new-password" required>
+        <div class="invalid-feedback">Mật khẩu mới tối thiểu 8 ký tự.</div>
+      </div>
+      <div class="mb-3">
+        <label class="form-label" for="passwordConfirmation">Nhập lại mật khẩu mới</label>
+        <input type="password" class="form-control" id="passwordConfirmation" autocomplete="new-password" required>
+        <div class="invalid-feedback">Mật khẩu nhập lại không khớp.</div>
+      </div>
+      <button class="btn btn-primary w-100" type="submit">Cập nhật mật khẩu</button>
+    </form>
+    <p class="text-center mt-3 mb-0"><a href="dang-nhap.html"><i class="bi bi-arrow-left"></i> Quay lại đăng nhập</a></p>
+  </div>
+</main>
+<script src="assets/js/data.js"></script>
+<script src="assets/js/utils.js"></script>
+<script src="assets/js/auth.js"></script>
+<script src="assets/js/pages/auth.js"></script>
+</body>
+</html>

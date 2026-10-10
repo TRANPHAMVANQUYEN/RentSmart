@@ -31,7 +31,10 @@ const qs = name => new URLSearchParams(location.search).get(name);
 const debounce = (fn, ms = 250) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
 const initials = name => String(name || '?').trim().split(/\s+/).slice(-2).map(w => w[0]).join('').toUpperCase();
 function avatarHTML(user, cls = '') {
-  if (user && user.avatar) return `<img class="avatar ${cls}" src="${esc(user.avatar)}" alt="Ảnh đại diện ${esc(user.fullName)}">`;
+  if (user && user.avatar) {
+    const src = typeof Auth !== 'undefined' ? Auth.imageUrl(user.avatar) : user.avatar;
+    return `<img class="avatar ${cls}" src="${esc(src)}" alt="Ảnh đại diện ${esc(user.fullName)}">`;
+  }
   return `<span class="avatar ${cls}" aria-hidden="true">${esc(initials(user && user.fullName))}</span>`;
 }
 function badge(map, key) { const s = map[key] || { label: key, cls: 'neutral' }; return `<span class="rs-badge ${s.cls}">${esc(s.label)}</span>`; }
@@ -109,28 +112,6 @@ function readImage(file, max = 800, quality = .72) {
   });
 }
 
-/* ---------- Tìm kiếm phòng (dùng cho trang chủ, danh sách, chatbot) ---------- */
-// Chỉ tin đã duyệt mới hiển thị công khai
-const publicRooms = () => DB.t('rooms').filter(r => r.status === 'approved');
-
-// f: {q, cat, districts[], pmin, pmax (VNĐ), amin, amax (m²), amenities[]}
-function searchRooms(f = {}) {
-  const q = norm(f.q || '');
-  return publicRooms().filter(r => {
-    if (f.cat && r.roomType !== f.cat) return false;
-    if (f.districts && f.districts.length && !f.districts.includes(r.district)) return false;
-    if (f.pmin != null && r.price < f.pmin) return false;
-    if (f.pmax != null && r.price > f.pmax) return false;
-    if (f.amin != null && r.area < f.amin) return false;
-    if (f.amax != null && r.area > f.amax) return false;
-    if (q && !norm(`${r.title} ${r.address} ${r.district}`).includes(q)) return false;
-    if (f.amenities && f.amenities.length) {
-      const have = DB.t('room_amenities').filter(a => a.roomId === r.id).map(a => a.amenityId);
-      if (!f.amenities.every(a => have.includes(a))) return false;
-    }
-    return true;
-  });
-}
 function sortRooms(list, key) {
   const s = [...list];
   if (key === 'gia-tang') s.sort((a, b) => a.price - b.price);
@@ -146,7 +127,7 @@ function roomCardHTML(r, opts = {}) {
   const link = `${RS.base}chi-tiet.html?id=${r.id}`;
   return `<article class="room-card">
     <div class="room-thumb">
-      <a href="${link}" tabindex="-1" aria-hidden="true"><img src="${esc(DB.cover(r.id))}" alt="${esc(r.title)}" loading="lazy"></a>
+      <a href="${link}" tabindex="-1" aria-hidden="true"><img src="${esc(Auth.imageUrl(r.coverImage || DB.cover(r.id)))}" alt="${esc(r.title)}" loading="lazy"></a>
       <span class="room-type">${esc(ROOM_TYPES[r.roomType])}</span>
       ${r.featured ? '<span class="room-flag"><i class="bi bi-star-fill"></i> Nổi bật</span>' : ''}
       <button class="save-btn ${saved ? 'saved' : ''}" type="button" data-save="${r.id}" aria-label="${saved ? 'Bỏ lưu tin' : 'Lưu tin'}" aria-pressed="${saved}"><i class="bi ${saved ? 'bi-heart-fill' : 'bi-heart'}"></i></button>
@@ -165,18 +146,22 @@ function roomCardHTML(r, opts = {}) {
 const roomCol = (r, cls = 'col-12 col-sm-6 col-lg-4 col-xl-3') => `<div class="${cls}">${roomCardHTML(r)}</div>`;
 
 // Nút tim: dùng chung cho mọi trang (event delegation)
-document.addEventListener('click', e => {
+document.addEventListener('click', async e => {
   const btn = e.target.closest('[data-save]');
   if (!btn) return;
-  const res = Auth.toggleSaved(btn.dataset.save);
-  if (res === null) return;
-  $$(`[data-save="${btn.dataset.save}"]`).forEach(b => {
-    b.classList.toggle('saved', res);
-    b.setAttribute('aria-pressed', res);
-    const i = b.querySelector('i');
-    if (i) i.className = 'bi ' + (res ? 'bi-heart-fill' : 'bi-heart');
-  });
-  toast(res ? 'Đã lưu tin' : 'Đã bỏ lưu tin');
+  try {
+    const res = await Auth.toggleSaved(btn.dataset.save);
+    if (res === null) return;
+    $$(`[data-save="${btn.dataset.save}"]`).forEach(b => {
+      b.classList.toggle('saved', res);
+      b.setAttribute('aria-pressed', res);
+      const i = b.querySelector('i');
+      if (i) i.className = 'bi ' + (res ? 'bi-heart-fill' : 'bi-heart');
+    });
+    toast(res ? 'Đã lưu tin' : 'Đã bỏ lưu tin');
+  } catch (error) {
+    toast(error.message, 'error');
+  }
 });
 
 /* ---------- Header & Footer dùng chung ---------- */
@@ -210,7 +195,14 @@ function renderHeader() {
     <div class="collapse navbar-collapse" id="mainNav"><ul class="navbar-nav ms-lg-4 me-auto">${nav}</ul>
       <div class="header-actions">${postBtn}${account}</div></div></div></nav></header>`;
   const out = $('#logoutBtn');
-  if (out) out.onclick = () => { Auth.logout(); location.href = b + 'index.html'; };
+  if (out) out.onclick = async () => {
+    try {
+      await Auth.logout();
+      location.href = b + 'index.html';
+    } catch (error) {
+      toast(error.message, 'error');
+    }
+  };
   const blocked = $('#postBlocked');
   if (blocked) blocked.onclick = () => toast('Chỉ tài khoản Chủ nhà / Môi giới mới đăng được tin.', 'info');
 }
@@ -228,6 +220,49 @@ function renderFooter() {
 }
 
 // Danh sách <option> cho các ô chọn quận
-const districtOptions = (all = 'Tất cả') => `<option value="">${all}</option>` + DISTRICTS.map(d => `<option>${esc(d)}</option>`).join('');
+const districtOptions = (all = 'Tất cả', useIds = false) => {
+  const districts = DB.data.districts && DB.data.districts.length ? DB.data.districts : DISTRICTS;
+  return `<option value="">${all}</option>` + districts.map(d => {
+    const name = typeof d === 'string' ? d : d.name;
+    const value = useIds && typeof d !== 'string' ? d.id : name;
+    return `<option value="${esc(value)}">${esc(name)}</option>`;
+  }).join('');
+};
 
-document.addEventListener('DOMContentLoaded', () => { renderHeader(); renderFooter(); });
+document.addEventListener('DOMContentLoaded', () => {
+  renderHeader();
+  renderFooter();
+  Auth.syncSaved().catch(error => console.warn('Không thể đồng bộ danh sách tin đã lưu:', error));
+});
+
+// Ghi nhận page view ẩn danh; không gửi địa chỉ IP hoặc thông tin định danh.
+function trackPageView() {
+  if (typeof Auth === 'undefined' || /\/admin\//i.test(location.pathname)) return;
+  const roomId = new URLSearchParams(location.search).get('id');
+  const width = window.innerWidth;
+  const device = width < 576 ? 'mobile' : width < 992 ? 'tablet' : 'desktop';
+  let source = '';
+  try {
+    if (document.referrer) {
+      const referrer = new URL(document.referrer);
+      source = referrer.origin === location.origin ? referrer.pathname : 'external';
+    }
+  } catch (error) {
+    console.warn('Không thể xác định nguồn truy cập trang.', error);
+  }
+  fetch(`${Auth.API_BASE}/page-views`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({
+      path: location.pathname.slice(0, 255),
+      roomId: roomId && /^\d+$/.test(roomId) ? Number(roomId) : null,
+      device,
+      source: source || null
+    }),
+    keepalive: true
+  }).then(response => {
+    if (!response.ok) console.warn(`Không ghi nhận được lượt truy cập (HTTP ${response.status}).`);
+  }).catch(error => console.warn('Không thể gửi lượt truy cập đến máy chủ.', error));
+}
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', trackPageView, { once: true });
+else trackPageView();

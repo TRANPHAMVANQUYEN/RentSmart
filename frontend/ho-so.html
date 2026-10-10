@@ -21,16 +21,16 @@
         <div><label class="btn btn-light-border btn-sm mb-0" for="avatarFile"><i class="bi bi-camera"></i> Đổi ảnh</label>
         <input type="file" id="avatarFile" accept="image/*" class="visually-hidden"></div></div>
       <div class="mb-3"><label class="form-label" for="fullName">Họ và tên</label><input class="form-control" id="fullName" required><div class="invalid-feedback">Vui lòng nhập họ tên.</div></div>
-      <div class="mb-3"><label class="form-label" for="email">Email</label><input class="form-control" id="email" disabled></div>
-      <div class="mb-3"><label class="form-label" for="phone">Số điện thoại</label><input class="form-control" id="phone" disabled></div>
-      <button class="btn btn-primary">Lưu thay đổi</button>
+      <div class="mb-3"><label class="form-label" for="email">Email</label><input type="email" autocomplete="email" class="form-control" id="email" required><div class="invalid-feedback">Email không hợp lệ hoặc đã được sử dụng.</div></div>
+      <div class="mb-3"><label class="form-label" for="phone">Số điện thoại</label><input type="tel" inputmode="tel" autocomplete="tel" class="form-control" id="phone" required><div class="invalid-feedback">Số điện thoại gồm 10 chữ số, bắt đầu bằng 0.</div></div>
+      <button class="btn btn-primary" type="submit">Lưu thay đổi</button>
     </form></div>
     <div class="col-md-6"><form class="box" id="pwForm" novalidate>
       <h2>Đổi mật khẩu</h2>
       <div class="mb-3"><label class="form-label" for="oldPw">Mật khẩu hiện tại</label><input type="password" class="form-control" id="oldPw" autocomplete="current-password"><div class="invalid-feedback"></div></div>
       <div class="mb-3"><label class="form-label" for="newPw">Mật khẩu mới</label><input type="password" class="form-control" id="newPw" autocomplete="new-password"><div class="invalid-feedback"></div></div>
       <div class="mb-3"><label class="form-label" for="newPw2">Nhập lại mật khẩu mới</label><input type="password" class="form-control" id="newPw2" autocomplete="new-password"><div class="invalid-feedback"></div></div>
-      <button class="btn btn-primary">Đổi mật khẩu</button>
+      <button class="btn btn-primary" type="submit">Đổi mật khẩu</button>
     </form></div>
   </div>
 </div></main>

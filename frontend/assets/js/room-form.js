@@ -11,6 +11,7 @@ const RoomForm = {
     const room = opts.room || null;
     const admin = opts.mode === 'admin';
     const owners = DB.t('users').filter(u => u.role === 'landlord' && u.status !== 'locked');
+    const amenities = DB.t('amenities') || AMENITIES;
     const have = room ? DB.amenitiesOf(room.id).map(a => a.id) : [];
     // images: [{url, primary}] - tối đa 8 ảnh
     let images = room ? DB.images(room.id).map(i => ({ url: i.imageUrl, primary: i.isPrimary })) : [];
@@ -28,13 +29,13 @@ const RoomForm = {
       <div class="col-6 col-md-4"><label class="form-label" for="rfArea">Diện tích (m²) <span class="text-danger">*</span></label>
         <input id="rfArea" type="number" min="5" max="500" class="form-control" required><div class="invalid-feedback">Diện tích từ 5 đến 500 m².</div></div>
       <div class="col-md-5"><label class="form-label" for="rfDistrict">Quận/Huyện (TP.HCM) <span class="text-danger">*</span></label>
-        <select id="rfDistrict" class="form-select" required>${districtOptions('-- Chọn quận --')}</select><div class="invalid-feedback">Vui lòng chọn quận.</div></div>
+      <select id="rfDistrict" class="form-select" required>${districtOptions('-- Chọn quận --', true)}</select><div class="invalid-feedback">Vui lòng chọn quận.</div></div>
       <div class="col-md-7"><label class="form-label" for="rfAddress">Địa chỉ cụ thể <span class="text-danger">*</span></label>
         <input id="rfAddress" class="form-control" required placeholder="Số nhà, đường, phường/xã"><div class="invalid-feedback">Vui lòng nhập địa chỉ.</div></div>
       <div class="col-12"><label class="form-label" for="rfDesc">Mô tả chi tiết <span class="text-danger">*</span></label>
         <textarea id="rfDesc" class="form-control" rows="5" required></textarea><div class="invalid-feedback">Mô tả từ 20 ký tự trở lên.</div></div>
       <div class="col-12"><span class="form-label d-block">Tiện ích</span><div class="row g-2">
-        ${AMENITIES.map(a => `<div class="col-6 col-md-4"><div class="form-check"><input class="form-check-input" type="checkbox" id="rfA${a.id}" value="${a.id}" ${have.includes(a.id) ? 'checked' : ''}><label class="form-check-label" for="rfA${a.id}"><i class="bi ${a.icon} me-1 text-primary-rs"></i>${esc(a.name)}</label></div></div>`).join('')}</div></div>
+        ${amenities.map(a => `<div class="col-6 col-md-4"><div class="form-check"><input class="form-check-input" type="checkbox" id="rfA${a.id}" value="${a.id}" ${have.includes(a.id) ? 'checked' : ''}><label class="form-check-label" for="rfA${a.id}"><i class="bi ${esc(a.icon || 'bi-check2')} me-1 text-primary-rs"></i>${esc(a.name)}</label></div></div>`).join('')}</div></div>
       <div class="col-12"><span class="form-label d-block">Hình ảnh (tối đa ${MAX_IMG} ảnh)</span>
         <label class="upload-zone" for="rfFiles"><i class="bi bi-cloud-arrow-up fs-3 text-primary-rs"></i><div class="fw-semibold">Bấm để chọn nhiều ảnh</div><small class="text-muted">JPG/PNG, ảnh được nén tự động</small></label>
         <input id="rfFiles" type="file" accept="image/*" multiple class="visually-hidden">
@@ -47,12 +48,16 @@ const RoomForm = {
 
     const f = id => $('#' + id, box);
     const owner = room ? DB.user(room.landlordId) : me;
+    if (admin) {
+      f('rfContact').readOnly = true;
+      f('rfPhone').readOnly = true;
+    }
     if (admin && room) f('rfOwner').value = room.landlordId;
     f('rfTitle').value = room ? room.title : '';
     f('rfType').value = room ? room.roomType : 'phong-tro';
     f('rfPrice').value = room ? room.price : '';
     f('rfArea').value = room ? room.area : '';
-    f('rfDistrict').value = room ? room.district : '';
+    f('rfDistrict').value = room ? room.districtId : '';
     f('rfAddress').value = room ? room.address : '';
     f('rfDesc').value = room ? room.description : '';
     f('rfContact').value = room ? room.contactName : (owner ? owner.fullName : '');
@@ -85,7 +90,7 @@ const RoomForm = {
     const mark = (el, ok) => { el.classList.toggle('is-invalid', !ok); return ok; };
     $('#rfCancel', box).onclick = () => (opts.onCancel ? opts.onCancel() : history.back());
 
-    $('#rfForm', box).addEventListener('submit', e => {
+    $('#rfForm', box).addEventListener('submit', async e => {
       e.preventDefault();
       const v = {
         title: f('rfTitle').value.trim(), price: +f('rfPrice').value, area: +f('rfArea').value, district: f('rfDistrict').value,
@@ -102,27 +107,52 @@ const RoomForm = {
       const now = new Date().toISOString();
       const landlordId = admin ? +f('rfOwner').value : (room ? room.landlordId : me.id);
       const data = {
-        landlordId, title: v.title, description: v.desc, price: v.price, area: v.area, address: v.address, district: v.district,
+        landlordId, title: v.title, description: v.desc, price: v.price, area: v.area, address: v.address, districtId: +v.district,
         roomType: f('rfType').value, contactName: v.contact, contactPhone: v.phone, updatedAt: now
       };
-      let saved = room;
-      if (room) {
-        Object.assign(room, data);
-        // Chủ nhà sửa tin thì phải được duyệt lại; admin sửa giữ nguyên trạng thái
-        if (!admin) { room.status = 'pending'; room.statusNote = ''; }
-      } else {
-        saved = Object.assign({ id: DB.nextId('rooms'), status: admin ? 'approved' : 'pending', featured: false, views: 0, statusNote: '', createdAt: now }, data);
-        DB.t('rooms').push(saved);
+      if (admin) {
+        const button = f('rfForm').querySelector('[type="submit"]');
+        button.disabled = true;
+        try {
+          const result = await AdminAPI.write(room ? 'PUT' : 'POST', room ? `rooms/${room.id}` : 'rooms', {
+            ...data,
+            amenityIds: $$('input[type=checkbox]:checked', box).map(input => +input.value),
+            images
+          });
+          const saved = room ? { ...room, ...data } : { ...data, id: result.roomId };
+          toast(room ? 'Đã lưu thay đổi' : 'Đã đăng tin');
+          if (opts.onSaved) opts.onSaved(saved);
+        } catch (error) {
+          toast(error.message, 'error');
+          button.disabled = false;
+        }
+        return;
       }
-      DB.data.room_images = DB.t('room_images').filter(i => i.roomId !== saved.id);
-      let nextImg = DB.nextId('room_images');
-      images.forEach(im => DB.t('room_images').push({ id: nextImg++, roomId: saved.id, imageUrl: im.url, isPrimary: !!im.primary }));
-      DB.data.room_amenities = DB.t('room_amenities').filter(a => a.roomId !== saved.id);
-      $$('input[type=checkbox]:checked', box).forEach(c => DB.t('room_amenities').push({ roomId: saved.id, amenityId: +c.value }));
-      if (!DB.save()) return;
-      if (admin) DB.log(room ? 'Sửa tin' : 'Đăng tin hộ chủ nhà', `Tin #${saved.id}`, saved.title);
-      toast(room ? 'Đã lưu thay đổi' : admin ? 'Đã đăng tin' : 'Đã gửi tin, đang chờ admin duyệt');
-      if (opts.onSaved) opts.onSaved(saved);
+      const button = f('rfForm').querySelector('[type="submit"]');
+      button.disabled = true;
+      try {
+        const result = await Auth.request(room ? `landlord/rooms/${room.id}` : 'landlord/rooms', {
+          method: room ? 'PUT' : 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            title: v.title,
+            description: v.desc,
+            price: v.price,
+            area: v.area,
+            address: v.address,
+            districtId: +v.district,
+            roomType: f('rfType').value,
+            amenityIds: $$('input[type=checkbox]:checked', box).map(input => +input.value),
+            images
+          })
+        });
+        const saved = room ? { ...room, ...data, status: 'pending', statusNote: '' } : { ...data, id: result.roomId, status: 'pending' };
+        toast(room ? 'Đã cập nhật tin, đang chờ duyệt' : 'Đã gửi tin, đang chờ duyệt');
+        if (opts.onSaved) opts.onSaved(saved);
+      } catch (error) {
+        toast(error.message, 'error');
+        button.disabled = false;
+      }
     });
   }
 };

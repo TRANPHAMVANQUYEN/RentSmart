@@ -7,18 +7,21 @@
   const PRICE_PRESETS = [['', 'Tất cả'], ['0-3', 'Dưới 3 triệu'], ['3-5', '3 – 5 triệu'], ['5-7', '5 – 7 triệu'], ['7-10', '7 – 10 triệu'], ['10-', 'Trên 10 triệu']];
   const AREA_PRESETS = [['', 'Tất cả'], ['0-20', 'Dưới 20m²'], ['20-30', '20 – 30m²'], ['30-50', '30 – 50m²'], ['50-', 'Trên 50m²']];
   const SLIDER_MAX = 15; // triệu
+  let apiRooms = [];
+  let apiAmenities = [];
+  let apiDistricts = DISTRICTS;
 
   // Trạng thái lọc; mọi giá trị đều có thể khôi phục từ URL
-  const S = { cat: '', q: '', quan: [], gia: '', gmax: '', dt: '', ti: [], sort: '', view: 'luoi', page: 1 };
+  const S = { cat: '', q: '', quan: [], gia: '', gmax: '', dt: '', amenities: [], sort: '', view: 'luoi', page: 1 };
   (function readURL() {
     const p = new URLSearchParams(location.search);
     S.cat = ROOM_TYPES[p.get('loai')] ? p.get('loai') : '';
     S.q = p.get('q') || '';
-    S.quan = (p.get('quan') || '').split(',').filter(d => DISTRICTS.includes(d));
+    S.quan = (p.get('quan') || '').split(',').filter(d => apiDistricts.includes(d));
     S.gia = p.get('gia') || '';
     S.gmax = p.get('gmax') || '';
     S.dt = p.get('dt') || '';
-    S.ti = (p.get('ti') || '').split(',').map(Number).filter(Boolean);
+    S.amenities = (p.get('tien-ich') || '').split(',').map(Number).filter(id => Number.isInteger(id) && id > 0);
     S.sort = p.get('sx') || '';
     S.view = p.get('xem') === 'ds' ? 'ds' : 'luoi';
     S.page = Math.max(1, +p.get('trang') || 1);
@@ -34,7 +37,7 @@
     if (S.gia) p.set('gia', S.gia);
     if (S.gmax) p.set('gmax', S.gmax);
     if (S.dt) p.set('dt', S.dt);
-    if (S.ti.length) p.set('ti', S.ti.join(','));
+    if (S.amenities.length) p.set('tien-ich', S.amenities.join(','));
     if (S.sort) p.set('sx', S.sort);
     if (S.view === 'ds') p.set('xem', 'ds');
     if (S.page > 1) p.set('trang', S.page);
@@ -48,24 +51,101 @@
   function drawFilters() {
     $('#filters').innerHTML = `
       <div class="filter-group"><h3>Danh mục</h3>${radios('cat', [['', 'Tất cả'], ...Object.entries(ROOM_TYPES)], S.cat)}</div>
-      <div class="filter-group"><h3>Quận/Huyện</h3><div class="filter-scroll">${DISTRICTS.map((d, i) =>
+      <div class="filter-group"><h3>Quận/Huyện</h3><div class="filter-scroll">${apiDistricts.map((d, i) =>
         `<div class="form-check"><input class="form-check-input" type="checkbox" name="quan" id="quan${i}" value="${esc(d)}" ${S.quan.includes(d) ? 'checked' : ''}><label class="form-check-label" for="quan${i}">${esc(d)}</label></div>`).join('')}</div></div>
       <div class="filter-group"><h3>Khoảng giá</h3>${radios('gia', PRICE_PRESETS, S.gmax ? 'custom' : S.gia)}
         <label for="gmax" class="form-label small mt-2 mb-0">Giá tối đa: <b id="gmaxLabel">${S.gmax ? S.gmax + ' triệu' : 'Không giới hạn'}</b></label>
         <input type="range" class="form-range" id="gmax" min="1" max="${SLIDER_MAX}" step="0.5" value="${S.gmax || SLIDER_MAX}"></div>
       <div class="filter-group"><h3>Diện tích</h3>${radios('dt', AREA_PRESETS, S.dt)}</div>
-      <div class="filter-group"><h3>Tiện ích</h3><div class="filter-scroll">${AMENITIES.map(a =>
-        `<div class="form-check"><input class="form-check-input" type="checkbox" name="ti" id="ti${a.id}" value="${a.id}" ${S.ti.includes(a.id) ? 'checked' : ''}><label class="form-check-label" for="ti${a.id}"><i class="bi ${a.icon} me-1"></i>${esc(a.name)}</label></div>`).join('')}</div></div>
+      <div class="filter-group"><h3>Tiện ích</h3>${apiAmenities.length ? apiAmenities.map((amenity, index) =>
+        `<div class="form-check"><input class="form-check-input" type="checkbox" name="amenity" id="amenity${index}" value="${amenity.id}" ${S.amenities.includes(Number(amenity.id)) ? 'checked' : ''}><label class="form-check-label" for="amenity${index}"><i class="bi ${esc(amenity.icon || 'bi-check2')} me-1"></i>${esc(amenity.name)}</label></div>`).join('') : '<p class="small text-muted mb-0">Đang tải tiện ích…</p>'}</div>
       <button type="button" class="btn btn-light-border w-100 mt-2" id="clearFilters"><i class="bi bi-x-circle"></i> Xóa bộ lọc</button>`;
   }
 
   /* ----- Lọc + vẽ kết quả ----- */
   function currentList() {
-    const f = { cat: S.cat, q: S.q, districts: S.quan, amenities: S.ti };
-    if (S.gmax) { f.pmax = +S.gmax * 1e6; }
-    else if (S.gia) { const [a, b] = range(S.gia); if (a != null) f.pmin = a * 1e6; if (b != null) f.pmax = b * 1e6; }
-    if (S.dt) { const [a, b] = range(S.dt); if (a != null) f.amin = a; if (b != null) f.amax = b; }
-    return sortRooms(searchRooms(f), S.sort);
+    const q = norm(S.q);
+    const [priceMin, priceMax] = S.gia ? range(S.gia) : [null, null];
+    const [areaMin, areaMax] = S.dt ? range(S.dt) : [null, null];
+    const maxPrice = S.gmax ? +S.gmax * 1e6 : priceMax == null ? null : priceMax * 1e6;
+
+    const list = apiRooms.filter(room => {
+      if (S.cat && room.roomType !== S.cat) return false;
+      if (S.quan.length && !S.quan.includes(room.district)) return false;
+      if (priceMin != null && room.price < priceMin * 1e6) return false;
+      if (maxPrice != null && room.price > maxPrice) return false;
+      if (areaMin != null && room.area < areaMin) return false;
+      if (areaMax != null && room.area > areaMax) return false;
+      if (q && !norm(`${room.title} ${room.address} ${room.district}`).includes(q)) return false;
+      if (S.amenities.length && !S.amenities.every(id => (room.amenities || []).some(amenity => Number(amenity.id) === id))) return false;
+      return true;
+    });
+
+    return sortRooms(list, S.sort);
+  }
+
+  function apiRoomCol(room, cls) {
+    const image = Auth.imageUrl(room.coverImage || `https://picsum.photos/seed/rentsmart-room-${encodeURIComponent(room.id)}/800/600`);
+    const roomType = ROOM_TYPES[room.roomType] || room.roomType;
+    const createdAt = room.createdAt ? room.createdAt.replace(' ', 'T') : '';
+
+    return `<div class="${cls}">
+      <article class="room-card">
+        <div class="room-thumb">
+          <a href="chi-tiet.html?id=${room.id}" tabindex="-1" aria-hidden="true"><img src="${esc(image)}" alt="Ảnh minh họa cho ${esc(room.title)}" loading="lazy"></a>
+          <span class="room-type">${esc(roomType)}</span>
+          ${room.featured ? '<span class="room-flag"><i class="bi bi-star-fill"></i> Nổi bật</span>' : ''}
+        </div>
+        <div class="room-body">
+          <div class="room-price">${formatMoney(room.price)} đ<small>/tháng</small></div>
+          <h3 class="room-title"><a href="chi-tiet.html?id=${room.id}">${esc(room.title)}</a></h3>
+          <p class="room-desc">${esc(room.description)}</p>
+          <div class="room-meta">
+            <span><i class="bi bi-aspect-ratio"></i>${esc(room.area)} m²</span>
+            <span><i class="bi bi-geo-alt"></i>${esc(room.district)}</span>
+            <span><i class="bi bi-clock"></i>${createdAt ? timeAgo(createdAt) : ''}</span>
+          </div>
+        </div>
+      </article>
+    </div>`;
+  }
+
+  async function loadRooms() {
+    $('#resultCount').textContent = 'Đang tải phòng...';
+
+    try {
+      const [rooms, districts, amenities] = await Promise.all([
+        Auth.request('rooms'),
+        Auth.request('districts'),
+        Auth.request('amenities')
+      ]);
+      if (!Array.isArray(rooms) || !Array.isArray(districts) || !Array.isArray(amenities)) {
+        throw new Error('API không trả về danh sách phòng hợp lệ.');
+      }
+
+      apiDistricts = districts.map(district => district.name);
+      S.quan = S.quan.filter(district => apiDistricts.includes(district));
+      apiAmenities = amenities.map(amenity => ({ ...amenity, id: Number(amenity.id) }));
+      S.amenities = S.amenities.filter(id => apiAmenities.some(amenity => amenity.id === id));
+      apiRooms = rooms.map(room => ({
+        ...room,
+        id: Number(room.id),
+        price: Number(room.price),
+        area: Number(room.area),
+        featured: Boolean(Number(room.featured)),
+        amenities: (room.amenities || []).map(amenity => ({ ...amenity, id: Number(amenity.id) }))
+      }));
+      drawFilters();
+      render();
+    } catch (error) {
+      console.error('Không thể tải danh sách phòng từ API:', error);
+      $('#resultCount').textContent = 'Không tải được danh sách phòng';
+      $('#results').innerHTML = `<div class="col-12"><div class="empty-state">
+        <i class="bi bi-wifi-off"></i><h3>Chưa kết nối được máy chủ</h3>
+        <p class="text-muted">Kiểm tra xem Laravel đang chạy ở cổng 8001 rồi tải lại trang.</p>
+      </div></div>`;
+      $('#pager').innerHTML = '';
+    }
   }
 
   function render() {
@@ -81,7 +161,7 @@
     const res = $('#results');
     res.classList.toggle('rooms-list', S.view === 'ds');
     res.innerHTML = items.length
-      ? items.map(r => roomCol(r, S.view === 'ds' ? 'col-12' : 'col-12 col-sm-6 col-xl-4')).join('')
+      ? items.map(r => apiRoomCol(r, S.view === 'ds' ? 'col-12' : 'col-12 col-sm-6 col-xl-4')).join('')
       : `<div class="col-12"><div class="empty-state"><i class="bi bi-search"></i><h3>Không tìm thấy phòng phù hợp</h3>
          <p class="text-muted">Hãy thử thay đổi hoặc bỏ bớt bộ lọc.</p><button class="btn btn-primary" id="emptyClear">Xóa bộ lọc</button></div></div>`;
 
@@ -101,7 +181,7 @@
   }
 
   function clearAll() {
-    Object.assign(S, { cat: '', q: '', quan: [], gia: '', gmax: '', dt: '', ti: [], page: 1 });
+    Object.assign(S, { cat: '', q: '', quan: [], gia: '', gmax: '', dt: '', amenities: [], page: 1 });
     $('#kw').value = '';
     drawFilters();
     render();
@@ -113,9 +193,9 @@
     const t = e.target;
     if (t.name === 'cat') S.cat = t.value;
     else if (t.name === 'quan') S.quan = $$('[name=quan]:checked', filters).map(i => i.value);
-    else if (t.name === 'ti') S.ti = $$('[name=ti]:checked', filters).map(i => +i.value);
     else if (t.name === 'gia') { S.gia = t.value; S.gmax = ''; $('#gmax').value = SLIDER_MAX; $('#gmaxLabel').textContent = 'Không giới hạn'; }
     else if (t.name === 'dt') S.dt = t.value;
+    else if (t.name === 'amenity') S.amenities = $$('[name=amenity]:checked', filters).map(input => +input.value);
     else return;
     S.page = 1;
     render();
@@ -147,6 +227,6 @@
   if (!AREA_PRESETS.some(p => p[0] === S.dt)) S.dt = '';
 
   drawFilters();
-  render();
+  loadRooms();
   if (qs('nangcao') && window.innerWidth < 992) bootstrap.Offcanvas.getOrCreateInstance('#filterPanel').show();
 })();

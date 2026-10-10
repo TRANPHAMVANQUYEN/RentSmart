@@ -1,36 +1,47 @@
 /* Trang chi tiết phòng: chi-tiet.html?id= */
-(function () {
+(async function () {
   const host = $('#detail');
-  const room = DB.room(qs('id'));
-  const me = Auth.current();
-  const canSee = room && (room.status === 'approved' || room.status === 'rented' || (me && (me.role === 'admin' || me.id === room.landlordId)));
-
-  if (!canSee) {
-    host.innerHTML = `<div class="empty-state"><i class="bi bi-house-x"></i><h3>Tin không tồn tại hoặc đã bị gỡ</h3>
+  let room;
+  const roomId = Number(qs('id'));
+  if (!Number.isInteger(roomId) || roomId < 1) {
+    host.innerHTML = `<div class="empty-state"><i class="bi bi-house-x"></i><h3>Đường dẫn tin phòng không hợp lệ</h3>
       <a class="btn btn-primary mt-2" href="phong-tro.html">Xem các phòng khác</a></div>`;
     return;
   }
+  try {
+    room = await Auth.request(`rooms/${roomId}`);
+  } catch (error) {
+    console.error('Không thể tải chi tiết phòng:', error);
+    host.innerHTML = `<div class="empty-state"><i class="bi bi-house-x"></i><h3>Tin không tồn tại hoặc máy chủ chưa sẵn sàng</h3>
+      <a class="btn btn-primary mt-2" href="phong-tro.html">Xem các phòng khác</a></div>`;
+    return;
+  }
+  room.id = Number(room.id);
+  room.landlordId = Number(room.landlordId);
+  room.price = Number(room.price);
+  room.area = Number(room.area);
+  room.views = Number(room.views);
+  room.featured = Boolean(Number(room.featured));
+  room.status = 'approved';
+  const me = Auth.current();
 
   // Tăng lượt xem (mỗi phiên một lần) + lưu lịch sử đã xem
   const vk = 'rs_v_' + room.id;
-  if (!sessionStorage.getItem(vk)) { sessionStorage.setItem(vk, '1'); room.views++; DB.save(); }
+  if (!sessionStorage.getItem(vk)) sessionStorage.setItem(vk, '1');
   Auth.addViewed(room.id);
 
-  const owner = DB.user(room.landlordId) || { fullName: room.contactName, createdAt: room.createdAt };
-  const imgs = DB.images(room.id);
-  const ams = DB.amenitiesOf(room.id);
-  const ownerRooms = DB.t('rooms').filter(r => r.landlordId === room.landlordId && r.status === 'approved').length;
+  const owner = room.landlord || { fullName: 'Chủ nhà', createdAt: room.createdAt };
+  const imgs = (room.images || []).map(image => ({ ...image, imageUrl: Auth.imageUrl(image.imageUrl) }));
+  const ams = room.amenities || [];
+  const ownerRooms = Number(room.landlordRoomCount) || 0;
   const rating = (4.3 + (room.landlordId % 7) / 10).toFixed(1);
-  const phone = room.contactPhone || '';
-  const masked = phone.slice(0, 4) + ' ' + phone.slice(4, 7) + ' ***';
+  const masked = '**** *** ***';
   const catLabel = ROOM_TYPES[room.roomType];
   document.title = `${room.title} – RentSmart`;
 
-  const similar = publicRooms().filter(r => r.id !== room.id && (r.district === room.district || Math.abs(r.price - room.price) <= room.price * .3))
-    .sort((a, b) => (b.district === room.district) - (a.district === room.district)).slice(0, 4);
+  const similar = room.similar || [];
 
-  const notice = room.status === 'rented' ? '<div class="alert alert-secondary">Phòng này đã được cho thuê.</div>'
-    : room.status !== 'approved' ? `<div class="alert alert-warning">Tin đang ở trạng thái <b>${esc(ROOM_STATUS[room.status].label)}</b> — chỉ bạn và quản trị viên nhìn thấy.</div>` : '';
+  const notice = '';
 
   host.innerHTML = `
     <nav aria-label="breadcrumb"><ol class="breadcrumb">
@@ -108,8 +119,16 @@
   });
 
   // Che bớt số điện thoại, bấm mới hiện đủ
-  $('#showPhone').addEventListener('click', () => {
-    $('#phoneText').innerHTML = `<a class="text-white" href="tel:${esc(phone)}">${esc(phone.slice(0, 4) + ' ' + phone.slice(4, 7) + ' ' + phone.slice(7))}</a>`;
+  $('#showPhone').addEventListener('click', async () => {
+    const button = $('#showPhone');
+    button.disabled = true;
+    try {
+      const { phone } = await Auth.request(`rooms/${room.id}/contact`);
+      $('#phoneText').innerHTML = `<a class="text-white" href="tel:${esc(phone)}">${esc(phone.slice(0, 4) + ' ' + phone.slice(4, 7) + ' ' + phone.slice(7))}</a>`;
+    } catch (error) {
+      toast(error.message, 'error');
+      button.disabled = false;
+    }
   });
 
   const needLogin = () => {
@@ -119,20 +138,36 @@
   };
 
   $('#msgBtn').addEventListener('click', () => { if (!needLogin()) bootstrap.Modal.getOrCreateInstance('#msgModal').show(); });
-  $('#msgForm').addEventListener('submit', e => {
+  $('#msgForm').addEventListener('submit', async e => {
     e.preventDefault();
-    bootstrap.Modal.getInstance('#msgModal').hide();
-    toast('Đã gửi tin nhắn cho chủ nhà');
+    try {
+      await Auth.request(`rooms/${room.id}/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: $('#msgText').value.trim() })
+      });
+      bootstrap.Modal.getInstance('#msgModal').hide();
+      toast('Đã gửi tin nhắn cho chủ nhà');
+    } catch (error) {
+      toast(error.message, 'error');
+    }
   });
 
   $('#rpReason').innerHTML = Object.entries(REPORT_REASONS).map(([k, v]) => `<option value="${k}">${v}</option>`).join('');
   $('#reportBtn').addEventListener('click', () => { if (!needLogin()) bootstrap.Modal.getOrCreateInstance('#reportModal').show(); });
-  $('#reportForm').addEventListener('submit', e => {
+  $('#reportForm').addEventListener('submit', async e => {
     e.preventDefault();
-    DB.t('reports').push({ id: DB.nextId('reports'), roomId: room.id, reporterId: Auth.current().id, reason: $('#rpReason').value, content: $('#rpContent').value.trim(), status: 'open', createdAt: new Date().toISOString(), note: '' });
-    DB.save();
-    bootstrap.Modal.getInstance('#reportModal').hide();
-    $('#rpContent').value = '';
-    toast('Đã gửi báo cáo. Cảm ơn bạn!');
+    try {
+      await Auth.request(`rooms/${room.id}/reports`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: $('#rpReason').value, content: $('#rpContent').value.trim() })
+      });
+      bootstrap.Modal.getInstance('#reportModal').hide();
+      $('#rpContent').value = '';
+      toast('Đã gửi báo cáo. Cảm ơn bạn!');
+    } catch (error) {
+      toast(error.message, 'error');
+    }
   });
 })();

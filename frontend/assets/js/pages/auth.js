@@ -29,7 +29,7 @@
     const u0 = Auth.current();
     if (u0) location.replace(dest() || Auth.homeFor(u0.role));
     if (qs('redirect')) $('#regLink').href = 'dang-ky.html?redirect=' + encodeURIComponent(qs('redirect'));
-    login.addEventListener('submit', e => {
+    login.addEventListener('submit', async e => {
       e.preventDefault();
       const id = $('#identifier'), pw = $('#password');
       $('#formError').classList.add('d-none');
@@ -38,11 +38,10 @@
       if (!ok1 || !pw.value) return;
       const btn = $('#submitBtn');
       busy(btn, true);
-      setTimeout(() => {
-        const res = Auth.login(id.value, pw.value, $('#remember').checked);
-        if (!res.ok) { busy(btn, false); return showBanner(res.error); }
-        location.href = dest() || Auth.homeFor(res.user.role);
-      }, 600);
+      const res = await Auth.login(id.value, pw.value, $('#remember').checked);
+      busy(btn, false);
+      if (!res.ok) return showBanner(res.error);
+      location.href = dest() || Auth.homeFor(res.user.role);
     });
   }
 
@@ -63,7 +62,7 @@
       $('#strengthText').textContent = !v ? 'Tối thiểu 8 ký tự' : ['Yếu', 'Yếu', 'Trung bình', 'Khá', 'Mạnh'][score];
     });
 
-    reg.addEventListener('submit', e => {
+    reg.addEventListener('submit', async e => {
       e.preventDefault();
       $('#formError').classList.add('d-none');
       const role = ($('[name=role]:checked') || {}).value;
@@ -82,17 +81,14 @@
 
       const btn = $('#submitBtn');
       busy(btn, true);
-      setTimeout(() => {
-        const res = Auth.register({
-          role, fullName: v('fullName'), username: v('username'), email: v('email'), phone: v('phone'), password: f('password').value,
-          managedRooms: role === 'landlord' ? v('managedRooms') : '', activeArea: role === 'landlord' ? v('activeArea') : ''
-        });
-        busy(btn, false);
-        if (!res.ok) { if (res.field) setErr(f(res.field), res.error); else showBanner(res.error); return; }
-        sessionStorage.setItem('rs_flash', 'Đăng ký thành công! Hãy đăng nhập.');
-        const r = qs('redirect');
-        location.href = 'dang-nhap.html' + (r ? '?redirect=' + encodeURIComponent(r) : '');
-      }, 600);
+      const res = await Auth.register({
+        role, fullName: v('fullName'), username: v('username'), email: v('email'), phone: v('phone'), password: f('password').value
+      });
+      busy(btn, false);
+      if (!res.ok) { if (res.field) setErr(f(res.field), res.error); else showBanner(res.error); return; }
+      sessionStorage.setItem('rs_flash', 'Đăng ký thành công! Hãy đăng nhập.');
+      const r = qs('redirect');
+      location.href = 'dang-nhap.html' + (r ? '?redirect=' + encodeURIComponent(r) : '');
     });
   }
 
@@ -102,11 +98,65 @@
 
   /* ----- Quên mật khẩu ----- */
   const forgot = $('#forgotForm');
-  if (forgot) forgot.addEventListener('submit', e => {
+  if (forgot) forgot.addEventListener('submit', async e => {
     e.preventDefault();
     const em = $('#email');
     if (!setErr(em, RE_EMAIL.test(em.value.trim()) ? '' : 'Email không hợp lệ.')) return;
-    forgot.classList.add('d-none');
-    $('#formOk').classList.remove('d-none');
+    $('#formError').classList.add('d-none');
+    const btn = forgot.querySelector('[type="submit"]');
+    busy(btn, true);
+    try {
+      await Auth.request('forgot-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: em.value.trim() })
+      });
+      forgot.classList.add('d-none');
+      $('#formOk').classList.remove('d-none');
+    } catch (error) {
+      showBanner(error.message);
+    } finally {
+      busy(btn, false);
+    }
   });
+
+  /* ----- Đặt lại mật khẩu ----- */
+  const reset = $('#resetForm');
+  if (reset) {
+    const token = qs('token') || '';
+    const email = $('#email');
+    email.value = qs('email') || '';
+    if (!token) showBanner('Liên kết đặt lại mật khẩu không hợp lệ hoặc đã hết hạn.');
+    reset.addEventListener('submit', async e => {
+      e.preventDefault();
+      $('#formError').classList.add('d-none');
+      const password = $('#password');
+      const confirmation = $('#passwordConfirmation');
+      let ok = setErr(email, RE_EMAIL.test(email.value.trim()) ? '' : 'Email không hợp lệ.');
+      ok = setErr(password, password.value.length >= 8 ? '' : 'Mật khẩu mới tối thiểu 8 ký tự.') && ok;
+      ok = setErr(confirmation, confirmation.value === password.value ? '' : 'Mật khẩu nhập lại không khớp.') && ok;
+      if (!ok || !token) return;
+
+      const btn = reset.querySelector('[type="submit"]');
+      busy(btn, true);
+      try {
+        await Auth.request('reset-password', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            token,
+            email: email.value.trim(),
+            password: password.value,
+            password_confirmation: confirmation.value
+          })
+        });
+        reset.classList.add('d-none');
+        $('#resetOk').classList.remove('d-none');
+      } catch (error) {
+        showBanner(error.message);
+      } finally {
+        busy(btn, false);
+      }
+    });
+  }
 })();

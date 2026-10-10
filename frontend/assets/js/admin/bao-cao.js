@@ -2,7 +2,7 @@
    RentSmart HCM - admin/bao-cao.js
    Xử lý báo cáo vi phạm liên quan tới tin đăng và chủ tin.
    ========================================================== */
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
   const shell = AdminUI.mount('bao-cao', 'Báo cáo vi phạm');
   if (!shell) return;
   const root = shell.content;
@@ -73,35 +73,17 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!result.ok) return;
     const note = result.reason || inlineNote || 'Xử lý thủ công';
 
-    if (action === 'remove' && room) {
-      room.status = 'removed';
-      room.statusNote = note;
-      room.updatedAt = new Date().toISOString();
-      DB.log('Gỡ tin', `Tin #${room.id}`, `Từ báo cáo #${report.id}: ${note}`);
-    }
-    if (action === 'warn' && owner) {
-      owner.warningCount = (owner.warningCount || 0) + 1;
-      DB.log('Cảnh cáo chủ tin', owner.username, `Báo cáo #${report.id}: ${note}`);
-      toast('Đã ghi nhận cảnh cáo cho chủ tin.', 'info');
-    }
-    if (action === 'lock' && owner && AdminUI.canDangerOnUser(owner, shell.admin)) {
-      owner.status = 'locked';
-      owner.lockReason = note;
-      DB.log('Khóa tài khoản', owner.username, `Từ báo cáo #${report.id}: ${note}`);
-    }
-    if (action === 'delete' && owner && AdminUI.canDangerOnUser(owner, shell.admin)) {
-      AdminUI.deleteUserCascade(owner.id);
-      DB.log('Xóa tài khoản', owner.username, `Từ báo cáo #${report.id}: ${note}`);
-    }
-    report.status = 'done';
-    report.note = note;
-    DB.save();
-    DB.log('Xử lý báo cáo', `Báo cáo #${report.id}`, `${preset.confirmText}: ${note}`);
-    if (action === 'ignore') toast('Đã đánh dấu bỏ qua báo cáo.');
-    if (action === 'remove') toast('Đã gỡ tin và kết thúc báo cáo.', 'info');
-    if (action === 'lock') toast('Đã khóa tài khoản chủ tin.', 'info');
-    if (action === 'delete') toast('Đã xóa tài khoản chủ tin.', 'info');
-    render(false);
+    if (owner && ['delete', 'lock'].includes(action) && !AdminUI.canDangerOnUser(owner, shell.admin)) return;
+    try {
+      await AdminAPI.write('POST', `reports/${report.id}/resolve`, { action, note });
+      await AdminAPI.hydrate(['users', 'rooms', 'reports'], root);
+      if (action === 'ignore') toast('Đã đánh dấu bỏ qua báo cáo.');
+      if (action === 'warn') toast('Đã ghi nhận cảnh cáo chủ tin.', 'info');
+      if (action === 'remove') toast('Đã gỡ tin và kết thúc báo cáo.', 'info');
+      if (action === 'lock') toast('Đã khóa tài khoản chủ tin.', 'info');
+      if (action === 'delete') toast('Đã xóa tài khoản chủ tin.', 'info');
+      render(false);
+    } catch (error) { toast(error.message, 'error'); }
   }
 
   function render(showLoading = false) {
@@ -178,5 +160,5 @@ document.addEventListener('DOMContentLoaded', () => {
     root.querySelectorAll('[data-action]').forEach(btn => btn.addEventListener('click', () => handleReportAction(btn.dataset.action, +btn.dataset.id)));
   }
 
-  render(true);
+  if (await AdminAPI.hydrate(['users', 'rooms', 'reports'], root)) render(false);
 });

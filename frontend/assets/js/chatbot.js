@@ -7,6 +7,7 @@
   const HISTORY_KEY = 'rs_chat';
   const QUICK = ['Cách liên hệ an toàn?', 'Giá phòng TP.HCM?', 'Khu vực nào gần trường đại học?', 'Tiện ích nên có?'];
   const GREETING = 'Xin chào! Tôi là trợ lý ảo hỗ trợ tìm phòng trọ tại TP.HCM. Bạn có thể chọn câu hỏi nhanh bên dưới hoặc gõ câu hỏi.';
+  const roomCache = new Map();
 
   // Mức giá tham khảo theo quận (triệu đồng/tháng)
   const PRICE_GUIDE = {
@@ -30,17 +31,26 @@
     return c;
   }
 
-  /* ----- askAI: THAY HÀM NÀY bằng lời gọi API LLM thật khi có backend -----
-     Ví dụ: const res = await fetch('/api/chat', {method:'POST', body: JSON.stringify({message})});
-            return await res.json(); // dạng { text, rooms: [roomId, ...] }
-     Hiện tại trả lời bằng quy tắc từ khóa tiếng Việt (không phân biệt hoa thường/dấu). */
+  /* ----- Gợi ý theo quy tắc từ khóa, tra cứu phòng thật từ Laravel API ----- */
   async function askAI(message) {
-    await new Promise(r => setTimeout(r, 700));
     const m = norm(message);
     const c = parseCriteria(message);
     const hasSearch = c.pmax != null || c.pmin != null || c.districts || c.cat;
     if (hasSearch && /phong|can ho|nha|tim|o ghep|duoi|tren/.test(m)) {
-      const found = sortRooms(searchRooms(c), 'moi-nhat').slice(0, 3);
+      const rooms = await Auth.request('rooms');
+      rooms.forEach(room => {
+        room.id = Number(room.id);
+        room.price = Number(room.price);
+        room.area = Number(room.area);
+        room.coverImage = Auth.imageUrl(room.coverImage);
+        roomCache.set(room.id, room);
+      });
+      const found = rooms.filter(room =>
+        (!c.cat || room.roomType === c.cat)
+        && (!c.districts || c.districts.includes(room.district))
+        && (c.pmin == null || room.price >= c.pmin)
+        && (c.pmax == null || room.price <= c.pmax)
+      ).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).slice(0, 3);
       if (found.length) return { text: `Tôi tìm thấy ${found.length} phòng phù hợp với yêu cầu của bạn:`, rooms: found.map(r => r.id) };
       return { text: 'Hiện chưa có phòng đúng yêu cầu. Bạn thử nới khoảng giá hoặc chọn quận lân cận nhé.' };
     }
@@ -79,14 +89,36 @@
     const d = document.createElement('div');
     if (item.type === 'rooms') {
       d.className = 'chat-rooms';
-      d.innerHTML = item.ids.map(id => DB.room(id)).filter(Boolean).map(r =>
-        `<a class="mini-room" href="${B}chi-tiet.html?id=${r.id}"><img src="${esc(DB.cover(r.id))}" alt="${esc(r.title)}"><div><b>${esc(r.title)}</b><span>${formatMoney(r.price)} đ/tháng</span><small>${r.area} m² · ${esc(r.district)}</small></div></a>`).join('');
+      d.textContent = 'Đang tải tin phù hợp…';
+      loadRoomSuggestions(d, item.ids);
     } else {
       d.className = 'msg ' + item.who;
       d.textContent = item.text;
     }
     msgs.appendChild(d);
     scroll();
+  }
+
+  async function loadRoomSuggestions(host, ids) {
+    try {
+      const rooms = await Promise.all(ids.map(async id => {
+        const roomId = Number(id);
+        if (roomCache.has(roomId)) return roomCache.get(roomId);
+        const room = await Auth.request(`rooms/${roomId}`);
+        room.id = Number(room.id);
+        room.price = Number(room.price);
+        room.area = Number(room.area);
+        room.coverImage = Auth.imageUrl(room.coverImage);
+        roomCache.set(room.id, room);
+        return room;
+      }));
+      host.innerHTML = rooms.map(room =>
+        `<a class="mini-room" href="${B}chi-tiet.html?id=${room.id}"><img src="${esc(room.coverImage || `https://picsum.photos/seed/rs${room.id}/120/90`)}" alt="${esc(room.title)}"><div><b>${esc(room.title)}</b><span>${formatMoney(room.price)} đ/tháng</span><small>${room.area} m² · ${esc(room.district)}</small></div></a>`
+      ).join('');
+    } catch (error) {
+      console.error('Không thể tải tin gợi ý từ API:', error);
+      host.textContent = 'Không tải được tin gợi ý. Vui lòng thử lại sau.';
+    }
   }
   function push(item) { history.push(item); save(); draw(item); }
 
@@ -113,12 +145,21 @@
     typing.className = 'msg ai';
     typing.innerHTML = '<span class="typing" aria-label="Đang trả lời"><i></i><i></i><i></i></span>';
     msgs.appendChild(typing); scroll();
-    const res = await askAI(text);
-    typing.remove();
-    push({ who: 'ai', text: res.text });
-    if (res.rooms && res.rooms.length) push({ type: 'rooms', ids: res.rooms });
+    try {
+      const res = await askAI(text);
+      typing.remove();
+      push({ who: 'ai', text: res.text });
+      if (res.rooms && res.rooms.length) push({ type: 'rooms', ids: res.rooms });
+    } catch (error) {
+      console.error('Không thể trả lời câu hỏi:', error);
+      typing.remove();
+      push({ who: 'ai', text: 'Chưa thể kết nối dữ liệu phòng lúc này. Vui lòng thử lại sau.' });
+    }
   }
   $('#chatForm').addEventListener('submit', e => { e.preventDefault(); const v = input.value; input.value = ''; send(v); });
   $$('.chat-quick .chip').forEach(c => c.onclick = () => send(c.textContent));
-  $('#chatSupport').onclick = () => { push({ who: 'ai', text: 'Đã chuyển yêu cầu của bạn cho nhân viên hỗ trợ. Chúng tôi sẽ liên hệ trong thời gian sớm nhất.' }); toast('Đã gửi yêu cầu tới nhân viên hỗ trợ', 'info'); };
+  $('#chatSupport').onclick = () => {
+    push({ who: 'ai', text: 'Đang mở ứng dụng email để bạn liên hệ support@rentsmart.vn.' });
+    window.location.href = `mailto:support@rentsmart.vn?subject=${encodeURIComponent('Hỗ trợ RentSmart')}`;
+  };
 })();

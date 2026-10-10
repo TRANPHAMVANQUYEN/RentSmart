@@ -2,6 +2,69 @@
    RentSmart HCM - admin.js
    Khung giao diện và các tiện ích dùng chung cho toàn bộ khu vực admin.
    ========================================================== */
+const AdminAPI = {
+  imageUrl(value) {
+    return Auth.imageUrl(value);
+  },
+  async request(path, options = {}) {
+    const headers = new Headers(options.headers || {});
+    if (options.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
+    return Auth.request(`admin/${path}`, { ...options, headers });
+  },
+  async hydrate(tables, root) {
+    const endpoints = {
+      users: ['admin/users', true],
+      rooms: ['admin/rooms', true],
+      reports: ['admin/reports', true],
+      activity_logs: ['admin/activity-logs', true],
+      districts: ['districts', false],
+      amenities: ['amenities', false]
+    };
+    try {
+      const entries = await Promise.all(tables.map(async table => {
+        const [endpoint, isAdmin] = endpoints[table];
+        const result = isAdmin ? await this.request(endpoint.slice(6)) : await Auth.request(endpoint);
+        return [table, result];
+      }));
+      entries.forEach(([table, rows]) => {
+        if (table === 'rooms') {
+          rows.forEach(room => {
+            room.featured = Boolean(Number(room.featured));
+            room.coverImage = this.imageUrl(room.coverImage || '');
+            room.contactName = room.ownerName;
+            room.images = (room.images || []).map(image => ({
+              roomId: room.id,
+              imageUrl: this.imageUrl(image.imageUrl),
+              isPrimary: Boolean(Number(image.isPrimary))
+            }));
+            room.amenityIds = (room.amenityIds || []).map(Number);
+          });
+          DB.data.rooms = rows;
+          DB.data.room_images = rows.flatMap(room => room.images.map((image, index) => ({ ...image, id: index + 1 })));
+          DB.data.room_amenities = rows.flatMap(room => room.amenityIds.map(amenityId => ({ roomId: room.id, amenityId })));
+        } else if (table === 'activity_logs') {
+          DB.data.activity_logs = rows.map(log => ({ ...log, admin: { fullName: log.adminName || 'Không xác định' } }));
+        } else {
+          DB.data[table] = rows;
+        }
+      });
+      return true;
+    } catch (error) {
+      root.innerHTML = `<div class="alert alert-danger" role="alert">
+        <strong>Không tải được dữ liệu quản trị.</strong> ${esc(error.message)}
+        <button type="button" class="btn btn-sm btn-outline-danger ms-2" data-admin-retry>Thử lại</button>
+      </div>`;
+      root.querySelector('[data-admin-retry]').addEventListener('click', () => this.hydrate(tables, root).then(ok => {
+        if (ok) window.location.reload();
+      }));
+      return false;
+    }
+  },
+  write(method, path, payload) {
+    return this.request(path, { method, body: JSON.stringify(payload) });
+  }
+};
+
 const AdminUI = (() => {
   const MENU = [
     { key: 'tong-quan', label: 'Tổng quan', icon: 'bi-speedometer2', href: 'tong-quan.html' },
@@ -21,15 +84,7 @@ const AdminUI = (() => {
     grid: '#ebe7e3'
   };
 
-  function getUrgentCounts() {
-    return {
-      pendingRooms: DB.t('rooms').filter(r => r.status === 'pending').length,
-      openReports: DB.t('reports').filter(r => r.status === 'open').length
-    };
-  }
-
-  function menuMarkup(activeKey) {
-    const counts = getUrgentCounts();
+  function menuMarkup(activeKey, counts = { pendingRooms: 0, openReports: 0 }) {
     return MENU.map(item => {
       let badgeText = '';
       if (item.key === 'tin-dang' && counts.pendingRooms) badgeText = String(counts.pendingRooms);
@@ -41,42 +96,12 @@ const AdminUI = (() => {
     }).join('');
   }
 
-  function notificationMarkup() {
-    const rooms = DB.t('rooms').filter(r => r.status === 'pending').slice(0, 4);
-    const reports = DB.t('reports').filter(r => r.status === 'open').slice(0, 4);
-    const list = [];
-    rooms.forEach(room => {
-      const owner = DB.user(room.landlordId);
-      list.push({
-        title: `Tin chờ duyệt #${room.id}`,
-        text: `${esc(room.title)} · ${owner ? esc(owner.fullName) : 'Không xác định'}`,
-        href: 'tin-dang.html'
-      });
-    });
-    reports.forEach(report => {
-      const room = DB.room(report.roomId);
-      const reporter = DB.user(report.reporterId);
-      list.push({
-        title: `Báo cáo #${report.id}`,
-        text: `${room ? esc(room.title) : 'Tin đã xóa'} · ${reporter ? esc(reporter.fullName) : 'Ẩn danh'}`,
-        href: 'bao-cao-vi-pham.html'
-      });
-    });
-    if (!list.length) return '<div class="notify-empty">Không có mục nào cần xử lý ngay.</div>';
-    return list.slice(0, 8).map(item => `<a class="dropdown-item notify-item" href="${item.href}">
-      <span class="dot" aria-hidden="true"></span>
-      <span><strong class="d-block">${item.title}</strong><p>${item.text}</p></span>
-    </a>`).join('');
-  }
-
   function mount(activeKey, pageTitle, pageDesc = 'Quản trị dữ liệu và vận hành RentSmart HCM.') {
     const admin = Auth.requireRole(['admin'], 'dang-nhap.html');
     if (!admin) return null;
     document.body.classList.add('admin-body');
     const shell = document.getElementById('admin-shell');
     if (!shell) return null;
-    const urgent = getUrgentCounts();
-    const totalNotifies = urgent.pendingRooms + urgent.openReports;
     shell.innerHTML = `<div class="admin-layout">
       <aside class="admin-sidebar" aria-label="Điều hướng quản trị">
         <div class="admin-brand">
@@ -101,11 +126,11 @@ const AdminUI = (() => {
               <div class="dropdown">
                 <button class="icon-btn" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Thông báo quản trị">
                   <i class="bi bi-bell"></i>
-                  ${totalNotifies ? `<span class="notify-badge">${totalNotifies > 9 ? '9+' : totalNotifies}</span>` : ''}
+                  <span class="notify-badge d-none" data-notify-count></span>
                 </button>
                 <div class="dropdown-menu dropdown-menu-end notification-menu">
                   <div class="dropdown-header">Mục cần xử lý ngay</div>
-                  ${notificationMarkup()}
+                  <div data-notify-list><div class="notify-empty">Đang tải thông báo…</div></div>
                 </div>
               </div>
               <div class="dropdown">
@@ -136,9 +161,13 @@ const AdminUI = (() => {
     </div>`;
 
     document.title = `${pageTitle} – RentSmart Admin`;
-    document.getElementById('adminLogoutBtn').addEventListener('click', () => {
-      Auth.logout();
-      location.href = 'dang-nhap.html';
+    document.getElementById('adminLogoutBtn').addEventListener('click', async () => {
+      try {
+        await Auth.logout();
+        location.href = 'dang-nhap.html';
+      } catch (error) {
+        toast(error.message, 'error');
+      }
     });
     const toggle = shell.querySelector('[data-sidebar-toggle]');
     const closeBackdrop = shell.querySelector('[data-sidebar-close]');
@@ -153,6 +182,26 @@ const AdminUI = (() => {
       window.dispatchEvent(new CustomEvent('admin:quick-search', { detail: String(value || '').trim() }));
     }, 220);
     quick.addEventListener('input', e => emitQuickSearch(e.target.value));
+
+    Auth.request('admin/dashboard').then(data => {
+      const counts = { pendingRooms: data.counts.pendingRooms || 0, openReports: data.counts.openReports || 0 };
+      const nav = shell.querySelector('.admin-nav');
+      if (nav) nav.innerHTML = menuMarkup(activeKey, counts);
+      const badge = shell.querySelector('[data-notify-count]');
+      const total = counts.pendingRooms + counts.openReports;
+      if (badge) {
+        badge.textContent = total > 9 ? '9+' : String(total);
+        badge.classList.toggle('d-none', total === 0);
+      }
+      const items = [];
+      (data.pendingRooms || []).forEach(room => items.push(`<a class="dropdown-item notify-item" href="tin-dang.html"><span class="dot" aria-hidden="true"></span><span><strong class="d-block">Tin chờ duyệt #${room.id}</strong><p>${esc(room.title)} · ${esc(room.ownerName || '')}</p></span></a>`));
+      (data.openReports || []).forEach(report => items.push(`<a class="dropdown-item notify-item" href="bao-cao-vi-pham.html"><span class="dot" aria-hidden="true"></span><span><strong class="d-block">Báo cáo #${report.id}</strong><p>${esc(report.roomTitle || 'Tin đã xóa')} · ${esc(report.reporterName || 'Ẩn danh')}</p></span></a>`));
+      const list = shell.querySelector('[data-notify-list]');
+      if (list) list.innerHTML = items.length ? items.slice(0, 8).join('') : '<div class="notify-empty">Không có mục nào cần xử lý ngay.</div>';
+    }).catch(error => {
+      const list = shell.querySelector('[data-notify-list]');
+      if (list) list.innerHTML = `<div class="notify-empty">${esc(error.message)}</div>`;
+    });
 
     return {
       admin,
@@ -305,11 +354,6 @@ const AdminUI = (() => {
     return !!user && user.role !== 'admin' && currentUser && user.id !== currentUser.id;
   }
 
-  function deleteUserCascade(userId) {
-    DB.t('rooms').filter(room => room.landlordId === +userId).forEach(room => DB.deleteRoom(room.id));
-    DB.data.users = DB.t('users').filter(user => user.id !== +userId);
-  }
-
   function normalizeDateInput(value) {
     if (!value) return null;
     const d = new Date(value);
@@ -344,7 +388,6 @@ const AdminUI = (() => {
     ownerRoomCount,
     reportCountForRoom,
     canDangerOnUser,
-    deleteUserCascade,
     normalizeDateInput,
     dateInRange
   };

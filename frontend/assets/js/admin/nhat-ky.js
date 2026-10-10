@@ -2,7 +2,7 @@
    RentSmart HCM - admin/nhat-ky.js
    Nhật ký hoạt động của quản trị viên.
    ========================================================== */
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
   const shell = AdminUI.mount('nhat-ky', 'Nhật ký hoạt động');
   if (!shell) return;
   const root = shell.content;
@@ -29,7 +29,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const from = AdminUI.normalizeDateInput(state.from);
     const to = AdminUI.normalizeDateInput(state.to);
     return DB.t('activity_logs')
-      .map(log => ({ ...log, admin: DB.user(log.adminId) }))
+      .map(log => ({ ...log, admin: log.admin || DB.user(log.adminId) }))
       .filter(log => {
         const keyword = norm(state.search);
         if (keyword && !norm(`${log.action} ${log.target} ${log.note} ${log.admin ? log.admin.fullName : ''}`).includes(keyword)) return false;
@@ -129,5 +129,5 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   document.getElementById('exportLogsBtn').addEventListener('click', () => downloadCSV('nhat-ky-hoat-dong.csv', exportRows()));
-  render(true);
+  if (await AdminAPI.hydrate(['activity_logs'], root)) render(false);
 });
